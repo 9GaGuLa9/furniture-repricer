@@ -1,12 +1,13 @@
 # Furniture Repricer - Configuration
 
 google_sheets:
-  spreadsheet_id: "YOUR_SPREADSHEET_ID_HERE"
+  spreadsheet_id: "1MVUjRr6295RLsM8m_lHjKRZ_mIyalcLPVWTNos1oOM4"
   worksheet_name: "Data"
   credentials_file: "credentials/service_account.json"
   
   main_sheet:
-    id: "YOUR_SPREADSHEET_ID_HERE"
+    id: "1MVUjRr6295RLsM8m_lHjKRZ_mIyalcLPVWTNos1oOM4"
+    gid: "264970813"
     name: "Data"
 
 scrapers:
