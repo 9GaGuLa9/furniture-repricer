@@ -1,0 +1,45 @@
+# Core dependencies
+requests==2.31.0
+cloudscraper==1.2.71
+curl-cffi==0.6.2
+
+# Google Sheets
+google-auth==2.27.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+gspread==5.12.4
+
+# HTML parsing
+beautifulsoup4==4.12.2
+lxml==5.1.0
+
+# Excel handling
+openpyxl==3.1.2
+
+# Web framework (admin panel)
+Flask==3.0.0
+Flask-Login==0.6.3
+Werkzeug==3.0.1
+
+# Configuration
+PyYAML==6.0.1
+python-dotenv==1.0.0
+
+# Telegram
+python-telegram-bot==20.7
+
+# Logging and monitoring
+colorlog==6.8.0
+
+# Utilities
+pytz==2023.3
+python-dateutil==2.8.2
+
+# Data handling
+pandas==2.1.4
+
+# Async support (for telegram)
+aiohttp==3.9.1
+
+# Security
+cryptography==41.0.7

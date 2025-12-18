@@ -1,0 +1,343 @@
+# ============================================================
+# Furniture Repricer - Configuration File
+# ============================================================
+# Версія: 1.0
+# Дата: Грудень 2025
+# Призначення: Автоматичний репрайсер для меблевого бізнесу
+# ============================================================
+
+# ============================================================
+# GOOGLE SHEETS НАЛАШТУВАННЯ
+# ============================================================
+google_sheets:
+  # Основна таблиця з даними товарів
+  spreadsheet_id: "1MVUjRr6295RLsM8m_lHjKRZ_mIyalcLPVWTNos1oOM4"
+  worksheet_name: "Data"
+  credentials_file: "credentials/service_account.json"
+  
+  # Основний аркуш з товарами
+  main_sheet:
+    id: "1MVUjRr6295RLsM8m_lHjKRZ_mIyalcLPVWTNos1oOM4"
+    gid: "264970813"
+    name: "Data"
+  
+  # Таблиця з даними конкурентів (окрема таблиця)
+  competitors_sheet:
+    id: "1ttLsKLjVQTwo8jXMzPkIJ6b1CR8xnrT33DHkVWxHG34"
+    sheets:
+      site1: "1StopBedrooms"  # Аркуш для 1stopbedrooms.com
+      site2: "Coleman"        # Аркуш для colemanfurniture.com
+      site3: "AFA"            # Аркуш для afastores.com
+  
+  # Аркуш з формулами та коефіцієнтами
+  formula_sheet:
+    id: "1MVUjRr6295RLsM8m_lHjKRZ_mIyalcLPVWTNos1oOM4"
+    name: "Formula"
+  
+  # Історія зміни цін (опціонально)
+  history_sheet:
+    enabled: true
+    retention_days: 90  # Зберігати історію 90 днів
+    name: "Price_History"
+
+# ============================================================
+# SCRAPERS (ПАРСЕРИ)
+# ============================================================
+scrapers:
+  # --------------------------------------------------------
+  # Emma Mason (НАШ КЛІЄНТ) - emmamason.com
+  # Парсить актуальні ціни "Our Sales Price"
+  # --------------------------------------------------------
+  emmamason:
+    enabled: true         # ✅ УВІМКНЕНО - парсить Our Sales Price
+    delay_min: 2.0        # Мінімальна затримка між запитами (сек)
+    delay_max: 5.0        # Максимальна затримка між запитами (сек)
+    retry_attempts: 3     # Кількість спроб при помилці
+    timeout: 30           # Таймаут запиту (секунди)
+    
+    # Додаткові налаштування
+    batch_size: 50        # Обробляти по 50 товарів за раз
+    checkpoint_enabled: true  # Зберігати прогрес для відновлення
+  
+  # --------------------------------------------------------
+  # 1StopBedrooms (КОНКУРЕНТ 1) - 1stopbedrooms.com
+  # TODO: Додати scraper після створення
+  # --------------------------------------------------------
+  onestopbedrooms:
+    enabled: false        # ⚠️ ВИМКНЕНО - scraper ще не створено
+    delay_min: 2.0
+    delay_max: 5.0
+    retry_attempts: 3
+    timeout: 30
+    
+    # GraphQL API налаштування
+    api_url: "https://www.1stopbedrooms.com/graphql/1"
+    per_page: 48
+  
+  # --------------------------------------------------------
+  # Coleman Furniture (КОНКУРЕНТ 2) - colemanfurniture.com
+  # TODO: Додати scraper після створення
+  # --------------------------------------------------------
+  coleman:
+    enabled: false        # ⚠️ ВИМКНЕНО - scraper ще не створено
+    delay_min: 2.0
+    delay_max: 5.0
+    retry_attempts: 3
+    timeout: 30
+    
+    # API налаштування
+    store_id: 1
+  
+  # --------------------------------------------------------
+  # AFA Stores (КОНКУРЕНТ 3) - afastores.com
+  # TODO: Додати scraper після створення
+  # --------------------------------------------------------
+  afa:
+    enabled: false        # ⚠️ ВИМКНЕНО - scraper ще не створено
+    delay_min: 2.0
+    delay_max: 5.0
+    retry_attempts: 3
+    timeout: 30
+    
+    # Cloudflare protection
+    use_cloudscraper: true
+
+# ============================================================
+# PRICING (ЦІНОУТВОРЕННЯ)
+# ============================================================
+pricing:
+  # Коефіцієнти (можна змінювати в Google Sheets → Formula)
+  coefficients:
+    floor: 1.5          # Floor = Our Cost × 1.5 (мінімальна ціна, 50% маржа)
+    below_lowest: 1.0   # Suggest = MIN(competitors) - $1
+    max: 2.0            # Max = Our Cost × 2.0 (максимальна ціна, 100% маржа)
+  
+  # Правила
+  rules:
+    min_price: 10.0     # Мінімальна ціна товару ($)
+    max_price: 50000.0  # Максимальна ціна товару ($)
+    round_to: 0.99      # Округлення (.99, .95, або 1.0 для цілих)
+  
+  # Формула розрахунку:
+  # 1. Suggest_raw = MIN(Site1, Site2, Site3) - below_lowest
+  # 2. Suggest = MAX(Floor, MIN(Suggest_raw, Max))
+  # 3. Округлення до .99
+
+# ============================================================
+# SKU MATCHING (СПІВСТАВЛЕННЯ АРТИКУЛІВ)
+# ============================================================
+sku_matching:
+  # Обробка множинних SKU (наприклад: "SKU1;SKU2;SKU3")
+  split_delimiter: ";"
+  take_first: true      # Брати перший SKU після розділення
+  
+  # Нормалізація
+  case_sensitive: false
+  trim_whitespace: true
+  remove_special_chars: false
+  
+  # Matching стратегія
+  strategy: "exact"     # exact | fuzzy | hybrid
+  fuzzy_threshold: 0.85 # Для fuzzy matching (якщо обрано)
+
+# ============================================================
+# TELEGRAM NOTIFICATIONS (СПОВІЩЕННЯ)
+# ============================================================
+telegram:
+  enabled: false #   !!!!!!!!!!!!!!!!!!
+  bot_token: "${TELEGRAM_BOT_TOKEN}"  # З .env файлу
+  chat_id: "${TELEGRAM_CHAT_ID}"      # З .env файлу
+  
+  # Що надсилати
+  notifications:
+    on_start: true          # Сповіщення при запуску
+    on_complete: true       # Сповіщення після завершення
+    on_error: true          # Сповіщення про помилки
+    on_price_changes: true  # Сповіщення про зміни цін
+    summary: true           # Загальна статистика
+  
+  # Формат повідомлень
+  format:
+    use_markdown: true
+    include_stats: true
+    include_top_changes: 10  # Топ 10 змін цін
+    include_errors: true
+
+# ============================================================
+# TELEGRAM BOT (КОМАНДИ УПРАВЛІННЯ)
+# ============================================================
+telegram_bot:
+  enabled: true
+  
+  # Дозволені користувачі (Chat IDs)
+  allowed_chat_ids:
+    - "${TELEGRAM_CHAT_ID}"  # З .env файлу
+  
+  # Доступні команди
+  commands:
+    status: true      # /status - Поточний статус
+    run: true         # /run - Ручний запуск
+    logs: true        # /logs - Останні логи
+    schedule: true    # /schedule - Розклад запусків
+    config: true      # /config - Поточна конфігурація
+    stop: false       # /stop - Зупинити (небезпечно)
+
+# ============================================================
+# SCHEDULE (РОЗКЛАД АВТОЗАПУСКУ)
+# ============================================================
+schedule:
+  timezone: "America/New_York"  # EST/EDT timezone
+  
+  # Запуски (3 рази на день)
+  runs:
+    - time: "06:00"    # 6:00 AM EST
+      enabled: true
+    
+    - time: "16:00"    # 4:00 PM EST
+      enabled: true
+    
+    - time: "21:00"    # 9:00 PM EST
+      enabled: true
+
+# ============================================================
+# LOGGING (ЛОГУВАННЯ)
+# ============================================================
+logging:
+  level: "INFO"  # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  format: "detailed"  # simple | detailed | json
+  
+  # Файли логів
+  files:
+    enabled: true
+    directory: "./logs"
+    rotation: "daily"    # daily | weekly | size
+    retention_days: 30   # Зберігати 30 днів
+    max_size_mb: 100     # Максимальний розмір файлу
+  
+  # Виведення в консоль
+  console:
+    enabled: true
+    colorize: true       # Кольорові логи (для терміналу)
+
+# ============================================================
+# PERFORMANCE (ПРОДУКТИВНІСТЬ)
+# ============================================================
+performance:
+  # Паралельність
+  parallel_scraping: false  # ⚠️ Вимкнено для безпеки (можна увімкнути)
+  max_workers: 4            # Кількість паралельних потоків
+  
+  # Кешування
+  cache:
+    enabled: true
+    directory: "./data/cache"
+    ttl_hours: 12  # Час життя кешу (годин)
+  
+  # Rate limiting
+  rate_limit:
+    enabled: true
+    requests_per_minute: 60  # Максимум запитів на хвилину
+
+# ============================================================
+# ERROR HANDLING (ОБРОБКА ПОМИЛОК)
+# ============================================================
+error_handling:
+  # Retry стратегія
+  retry:
+    max_attempts: 3
+    backoff_factor: 2.0  # Експоненційний backoff: 1s, 2s, 4s
+    max_delay: 60        # Максимальна затримка (секунди)
+  
+  # Fallback поведінка
+  fallback:
+    use_cached_data: true       # Використовувати кеш при помилках
+    skip_failed_scrapers: true  # Пропускати помилкові scraper
+    continue_on_error: true     # Продовжувати при помилках
+
+# ============================================================
+# DATA VALIDATION (ПЕРЕВІРКА ДАНИХ)
+# ============================================================
+validation:
+  # Перевірка цін
+  price_validation:
+    enabled: true
+    max_change_percent: 50  # Попередження якщо зміна > 50%
+    min_competitors: 1      # Мінімум конкурентів для розрахунку
+    allow_zero_price: false # Дозволити нульові ціни
+  
+  # Перевірка SKU
+  sku_validation:
+    enabled: true
+    allow_empty: false
+    max_length: 50
+    pattern: null  # Regex pattern (опціонально)
+
+# ============================================================
+# MONITORING (МОНІТОРИНГ)
+# ============================================================
+monitoring:
+  # Health checks
+  health_check:
+    enabled: false  # Вимкнено (для веб-панелі)
+    endpoint: "/health"
+    interval_minutes: 5
+  
+  # Metrics
+  metrics:
+    enabled: true
+    save_to_file: true
+    file_path: "./data/metrics.json"
+    
+    # Що записувати
+    track:
+      - scraping_time
+      - success_rate
+      - error_count
+      - price_changes
+      - products_updated
+
+# ============================================================
+# DEVELOPMENT (РОЗРОБКА / ТЕСТУВАННЯ)
+# ============================================================
+development:
+  # Тестовий режим
+  test_mode: true       # ⚠️ true = обробляти лише test_limit товарів
+  test_limit: 10         # Кількість товарів для тесту
+  
+  # Debug опції
+  debug:
+    save_raw_html: false       # Зберігати HTML для дебагу
+    verbose_logging: false     # Детальні логи
+    dry_run: true             # true = НЕ записувати в Google Sheets
+    print_sql_queries: false   # Виводити SQL запити (якщо є)
+
+# ============================================================
+# ADVANCED (ДОДАТКОВІ НАЛАШТУВАННЯ)
+# ============================================================
+advanced:
+  # User-Agent rotation
+  user_agents:
+    rotate: true
+    custom_list: []  # Пустий = використовувати стандартний список
+  
+  # Proxy (якщо потрібно)
+  proxy:
+    enabled: false
+    http: null   # "http://proxy:port"
+    https: null  # "https://proxy:port"
+  
+  # Threading
+  threading:
+    use_threading: false  # Використовувати threads замість processes
+    daemon: true
+
+# ============================================================
+# КІНЕЦЬ КОНФІГУРАЦІЇ
+# ============================================================
+
+# Примітки:
+# 1. Значення ${VAR} замінюються на змінні з .env файлу
+# 2. Змінюйте delay_min/delay_max якщо отримуєте 403 помилки
+# 3. test_mode=true для тестування (обробляє лише 10 товарів)
+# 4. Після зміни конфігурації перезапустіть репрайсер
+# 5. Логи зберігаються в ./logs/repricer_YYYY-MM-DD.log
