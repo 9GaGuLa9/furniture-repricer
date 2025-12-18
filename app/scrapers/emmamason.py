@@ -189,8 +189,9 @@ if __name__ == "__main__":
     
     test_config = {'delay_min': 1.0, 'delay_max': 2.0, 'retry_attempts': 3, 'timeout': 30}
     test_urls = [
-        "https://emmamason.com/lighting.html",
-        "https://emmamason.com/bedroom-furniture-dresser.html",
+        "https://emmamason.com/aico-villa-valencia-dresser-in-chestnut-72050-55.html",
+        "https://emmamason.com/caracole-furniture-fontainebleau-center-side-chair-set-of-2-in-champagne-mist-c062-419-281.html",
+        "https://emmamason.com/a-r-t-furniture-loft-queen-woven-panel-bed-in-natural-woven.html",
     ]
     
     print("\n" + "="*60)
