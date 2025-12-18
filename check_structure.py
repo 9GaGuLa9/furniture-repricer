@@ -1,5 +1,5 @@
 """
-Перевірка структури проекту та імпортів
+Перевірка структури проекту та залежностей
 """
 
 import sys
@@ -46,8 +46,51 @@ for init_path in required_inits:
 
 print()
 
-# 3. Спробувати імпортувати модулі
-print("3️⃣  Тестування імпортів...")
+# 3. Перевірити залежності (БЕЗ імпорту модулів)
+print("3️⃣  Перевірка Python залежностей...")
+
+dependencies = [
+    ('yaml', 'PyYAML'),
+    ('dotenv', 'python-dotenv'),
+    ('bs4', 'beautifulsoup4'),
+    ('requests', 'requests'),
+    ('lxml', 'lxml'),
+]
+
+missing_deps = []
+for module_name, package_name in dependencies:
+    try:
+        __import__(module_name)
+        print(f"   ✅ {package_name}")
+    except ImportError:
+        print(f"   ❌ {package_name} - НЕ ВСТАНОВЛЕНО!")
+        missing_deps.append(package_name)
+
+if missing_deps:
+    print()
+    print("="*60)
+    print("❌ ВІДСУТНІ ЗАЛЕЖНОСТІ!")
+    print("="*60)
+    print()
+    print("Встановіть їх командою:")
+    print()
+    print(f"   pip install {' '.join(missing_deps)}")
+    print()
+    print("Або встановіть всі мінімальні залежності:")
+    print()
+    print("   pip install PyYAML python-dotenv beautifulsoup4 requests lxml")
+    print()
+    print("Або запустіть автоматичну установку:")
+    print("   - Windows: подвійний клік на INSTALL.bat")
+    print("   - Linux/Mac: chmod +x install.sh && ./install.sh")
+    print()
+    print("="*60)
+    sys.exit(1)
+
+print()
+
+# 4. Тепер можна імпортувати модулі
+print("4️⃣  Тестування імпортів пакетів...")
 
 test_imports = [
     ("app", "Пакет app"),
@@ -68,14 +111,28 @@ for module_name, description in test_imports:
 
 print()
 
-# 4. Спробувати імпортувати emmamason
-print("4️⃣  Тестування Emma Mason scraper...")
+# 5. Спробувати імпортувати emmamason
+print("5️⃣  Тестування Emma Mason scraper...")
 try:
     from app.scrapers.emmamason import EmmaMasonScraper, scrape_emmamason
     print(f"   ✅ EmmaMasonScraper імпортовано успішно")
     print(f"   ✅ scrape_emmamason функція доступна")
 except ImportError as e:
     print(f"   ❌ Помилка імпорту Emma Mason scraper:")
+    print(f"      {e}")
+    all_ok = False
+
+print()
+
+# 6. Тестування модулів
+print("6️⃣  Тестування модулів...")
+try:
+    from app.modules import get_logger, PricingEngine, SKUMatcher
+    print(f"   ✅ get_logger")
+    print(f"   ✅ PricingEngine")
+    print(f"   ✅ SKUMatcher")
+except ImportError as e:
+    print(f"   ❌ Помилка імпорту модулів:")
     print(f"      {e}")
     all_ok = False
 
@@ -88,6 +145,7 @@ if all_ok:
     print()
     print("   python test_scraper.py")
     print("   python -m app.scrapers.emmamason")
+    print("   python run_repricer.py --test")
 else:
     print("❌ Є ПРОБЛЕМИ! Перегляньте помилки вище")
 print("="*60)
