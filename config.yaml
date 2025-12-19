@@ -19,17 +19,17 @@ scrapers:
     timeout: 30
   
   onestopbedrooms:
-    enabled: false
+    enabled: true
     delay_min: 2.0
     delay_max: 5.0
   
   coleman:
-    enabled: false
+    enabled: true
     delay_min: 2.0
     delay_max: 5.0
   
   afa:
-    enabled: false
+    enabled: true
     delay_min: 2.0
     delay_max: 5.0
 
