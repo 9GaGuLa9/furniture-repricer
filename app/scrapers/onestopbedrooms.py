@@ -279,6 +279,7 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
 
 def scrape_onestopbedrooms(config: dict) -> List[Dict[str, str]]:
     """Головна функція для парсингу 1StopBedrooms"""
+    input("Відключи VPN Enter:")
     scraper = OneStopBedroomsScraper(config)
     results = scraper.scrape_all_products()
     return results

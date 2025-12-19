@@ -373,6 +373,9 @@ class RepricerSheetsManager:
         self.client = client
         self.config = config
         self.logger = get_logger("sheets_manager")
+        
+        # Cache для row numbers (оптимізація rate limit)
+        self.row_cache = {}
     
     def get_main_data(self) -> List[Dict[str, str]]:
         """Отримати дані з основної таблиці"""
@@ -401,12 +404,21 @@ class RepricerSheetsManager:
             sheet_id = self.config['main_sheet']['id']
             sheet_name = self.config['main_sheet']['name']
             
-            # Знайти рядок з SKU
-            row_num = self.client.find_row_by_sku(sheet_id, sku, sheet_name)
-            
-            if row_num is None:
-                self.logger.warning(f"SKU {sku} not found in main sheet")
-                return False
+            # Використати кеш для row_num (оптимізація!)
+            if sku in self.row_cache:
+                row_num = self.row_cache[sku]
+            else:
+                # Затримка перед пошуком (rate limit protection)
+                time.sleep(0.5)
+                
+                row_num = self.client.find_row_by_sku(sheet_id, sku, sheet_name)
+                
+                if row_num is None:
+                    self.logger.warning(f"SKU {sku} not found in main sheet")
+                    return False
+                
+                # Зберегти в кеш
+                self.row_cache[sku] = row_num
             
             # Підготувати оновлення
             # Припускаємо структуру: SKU, Brand, Our Cost, Our Sales Price, Suggest Sales Price,
@@ -472,6 +484,7 @@ class RepricerSheetsManager:
             
             # Виконати batch update
             if updates:
+                time.sleep(0.3)  # Rate limit protection
                 self.client.batch_update(sheet_id, updates, sheet_name)
                 self.logger.info(f"Updated prices for SKU {sku}")
                 return True
@@ -483,7 +496,16 @@ class RepricerSheetsManager:
             return False
     
     def add_to_history(self, sku: str, prices: Dict[str, Any]):
-        """Додати запис в історію цін"""
+        """
+        Додати запис в історію цін
+        ВИМКНЕНО для production через rate limits
+        """
+        # ТИМЧАСОВО ВИМКНЕНО для уникнення rate limit
+        self.logger.debug(f"History tracking disabled for SKU {sku}")
+        return
+        
+        # ОРИГІНАЛЬНИЙ КОД (закоментовано):
+        """
         try:
             sheet_id = self.config['main_sheet']['id']
             history_name = self.config.get('history_sheet', {}).get('name', 'Price_History')
@@ -510,6 +532,104 @@ class RepricerSheetsManager:
             
         except Exception as e:
             self.logger.error(f"Failed to add history for SKU {sku}: {e}")
+        """
+    
+    def batch_update_all(self, products: List[Dict]) -> int:
+        """
+        Батчити всі оновлення разом (НАБАГАТО ШВИДШЕ!)
+        
+        Args:
+            products: Список товарів з _prices_to_update для оновлення
+        
+        Returns:
+            Кількість оновлених товарів
+        """
+        self.logger.info(f"Batch updating {len(products)} products...")
+        
+        sheet_id = self.config['main_sheet']['id']
+        sheet_name = self.config['main_sheet']['name']
+        
+        # Спочатку завантажити всі row numbers одним запитом
+        if not self.row_cache:
+            self.logger.info("Building SKU row cache...")
+            time.sleep(0.5)
+            
+            worksheet = self.client.open_sheet(sheet_id, sheet_name)
+            all_data = worksheet.get_all_values()
+            
+            # Знайти колонку SKU (припускаємо A)
+            for idx, row in enumerate(all_data, start=1):
+                if row and row[0]:  # SKU в колонці A
+                    self.row_cache[row[0]] = idx
+            
+            self.logger.info(f"Cached {len(self.row_cache)} SKU row numbers")
+        
+        # Підготувати всі оновлення
+        all_updates = []
+        updated_count = 0
+        
+        for product in products:
+            sku = product.get('sku') or product.get('SKU')
+            if not sku or sku not in self.row_cache:
+                continue
+            
+            row_num = self.row_cache[sku]
+            prices = product.get('_prices_to_update', {})
+            
+            if not prices:
+                continue
+            
+            # Додати оновлення для цього товару
+            if 'suggest_price' in prices:
+                all_updates.append({
+                    'range': f'{sheet_name}!E{row_num}',
+                    'values': [[prices['suggest_price']]]
+                })
+            
+            if 'site1_price' in prices:
+                all_updates.append({
+                    'range': f'{sheet_name}!G{row_num}:H{row_num}',
+                    'values': [[prices.get('site1_price'), prices.get('site1_url', '')]]
+                })
+            
+            if 'site2_price' in prices:
+                all_updates.append({
+                    'range': f'{sheet_name}!I{row_num}:J{row_num}',
+                    'values': [[prices.get('site2_price'), prices.get('site2_url', '')]]
+                })
+            
+            if 'site3_price' in prices:
+                all_updates.append({
+                    'range': f'{sheet_name}!K{row_num}:L{row_num}',
+                    'values': [[prices.get('site3_price'), prices.get('site3_url', '')]]
+                })
+            
+            # Last update (колонка Q)
+            all_updates.append({
+                'range': f'{sheet_name}!Q{row_num}',
+                'values': [[datetime.now().strftime('%Y-%m-%d %H:%M:%S')]]
+            })
+            
+            updated_count += 1
+        
+        # Виконати ОДИН batch update для всіх товарів
+        if all_updates:
+            self.logger.info(f"Executing batch update with {len(all_updates)} changes...")
+            time.sleep(0.5)
+            
+            # Google Sheets API дозволяє до 1000 updates за раз
+            # Розбити на chunks по 500
+            chunk_size = 500
+            for i in range(0, len(all_updates), chunk_size):
+                chunk = all_updates[i:i+chunk_size]
+                self.client.batch_update(sheet_id, chunk)
+                
+                if i + chunk_size < len(all_updates):
+                    time.sleep(1.0)  # Затримка між chunks
+            
+            self.logger.info(f"✓ Batch update completed: {updated_count} products")
+        
+        return updated_count
 
 
 if __name__ == "__main__":

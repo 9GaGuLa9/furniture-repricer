@@ -134,9 +134,18 @@ class FurnitureRepricer:
                 # Отримати список URL товарів клієнта
                 client_urls = []
                 for product in products:
-                    url = product.get('our_url') or product.get('url')
-                    if url:
-                        client_urls.append(url)
+                    # Спробувати різні варіанти назв колонок URL
+                    url = (product.get('our_url') or 
+                           product.get('Our URL') or 
+                           product.get('url') or
+                           product.get('URL'))
+                    
+                    if url and url.strip():  # Перевірити що не порожній
+                        client_urls.append(url.strip())
+                    else:
+                        # Лог для відладки
+                        sku = product.get('sku') or product.get('SKU')
+                        self.logger.debug(f"No URL for SKU {sku}")
                 
                 if not client_urls:
                     self.logger.warning("No client URLs found in data")
@@ -303,56 +312,68 @@ class FurnitureRepricer:
     
     def _update_sheets(self, products: List[Dict]) -> int:
         """
-        6. Оновити Google Sheets
+        6. Оновити Google Sheets (ОПТИМІЗОВАНА ВЕРСІЯ)
         Записує оновлені ціни та дані конкурентів назад у таблицю
         """
         with LogBlock("Updating Google Sheets", self.logger):
-            updated_count = 0
-            
             try:
+                # Підготувати prices для кожного товару
+                products_with_prices = []
+                
                 for product in products:
                     sku = product.get('sku') or product.get('SKU')
                     if not sku:
                         continue
                     
-                    # Підготувати дані для оновлення
+                    # Зібрати всі prices в один словник
                     prices = {}
                     
+                    # Our current price (якщо парсили)
                     if 'our_current_price' in product:
                         prices['our_price'] = product['our_current_price']
                     
+                    # Suggested price
                     if 'suggested_price' in product:
                         prices['suggest_price'] = product['suggested_price']
                     
+                    # Competitor 1 (1StopBedrooms)
                     if 'site1_price' in product:
                         prices['site1_price'] = product['site1_price']
                         prices['site1_url'] = product.get('site1_url', '')
                     
+                    # Competitor 2 (Coleman)
                     if 'site2_price' in product:
                         prices['site2_price'] = product['site2_price']
                         prices['site2_url'] = product.get('site2_url', '')
                     
+                    # Competitor 3 (AFA)
                     if 'site3_price' in product:
                         prices['site3_price'] = product['site3_price']
                         prices['site3_url'] = product.get('site3_url', '')
                     
-                    # Оновити в Sheets
+                    # Зберегти prices в товарі
                     if prices:
-                        success = self.sheets_manager.update_product_prices(sku, prices)
-                        if success:
-                            updated_count += 1
-                            
-                            # Також зберегти в історію
-                            self.sheets_manager.add_to_history(sku, prices)
+                        product['_prices_to_update'] = prices
+                        products_with_prices.append(product)
                 
-                self.stats['updated'] = updated_count
-                self.logger.info(f"Updated {updated_count} products in Google Sheets")
-                
-                return updated_count
+                # ОДИН batch update для ВСІХ товарів
+                if products_with_prices:
+                    self.logger.info(f"Batch updating {len(products_with_prices)} products...")
+                    
+                    # Використати batch_update_all замість циклу
+                    updated = self.sheets_manager.batch_update_all(products_with_prices)
+                    
+                    self.stats['updated'] = updated
+                    self.logger.info(f"✓ Batch update completed: {updated} products")
+                    
+                    return updated
+                else:
+                    self.logger.warning("No products with prices to update")
+                    return 0
                 
             except Exception as e:
                 self.logger.error(f"Failed to update sheets: {e}", exc_info=True)
-                return updated_count
+                return 0
     
     def run(self):
         """Запустити репрайсер - головна логіка"""

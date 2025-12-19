@@ -29,7 +29,7 @@ scrapers:
     delay_max: 5.0
   
   afa:
-    enabled: true
+    enabled: false
     delay_min: 2.0
     delay_max: 5.0
 
