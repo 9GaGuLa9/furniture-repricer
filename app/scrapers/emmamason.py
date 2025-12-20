@@ -150,6 +150,8 @@ class EmmaMasonScraper:
         logger.info(f"Starting scrape of {total} products")
         logger.info("="*60)
         
+        start_time = datetime.now()
+        
         for idx, url in enumerate(urls, 1):
             if not url or not url.strip():
                 self.session_stats['skipped'] += 1
@@ -161,13 +163,25 @@ class EmmaMasonScraper:
             if product_data:
                 results.append(product_data)
             
-            if idx % 10 == 0 and idx < total:
+            # 🆕 ПРОГРЕС кожні 10 товарів
+            if idx % 10 == 0:
+                elapsed = (datetime.now() - start_time).total_seconds()
+                speed = idx / (elapsed / 60) if elapsed > 0 else 0
+                eta_min = (total - idx) / speed if speed > 0 else 0
+                
+                logger.info("="*60)
+                logger.info(f"📊 PROGRESS: {idx}/{total} ({idx/total*100:.1f}%)")
+                logger.info(f"   Speed: {speed:.1f} products/min")
+                logger.info(f"   ETA: {eta_min:.1f} minutes")
+                logger.info(f"   Success: {self.session_stats['success']}, Errors: {self.session_stats['errors']}")
+                logger.info("="*60)
+                
                 time.sleep(random.uniform(5, 8))
         
         logger.info("="*60)
         logger.info(f"Completed: ✓ {self.session_stats['success']}, "
-                   f"✗ {self.session_stats['errors']}, "
-                   f"⊘ {self.session_stats['skipped']}")
+                f"✗ {self.session_stats['errors']}, "
+                f"⊘ {self.session_stats['skipped']}")
         
         return results
     

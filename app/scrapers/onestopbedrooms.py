@@ -246,7 +246,6 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
         return category_products
     
     def scrape_all_products(self) -> List[Dict[str, str]]:
-        """Парсить всі товари з усіх категорій"""
         logger.info("="*60)
         logger.info("Starting 1StopBedrooms scraping")
         logger.info(f"Categories: {len(self.CATEGORIES)}")
@@ -254,10 +253,32 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
         
         all_products = []
         seen_skus = set()
+        start_time = datetime.now()
         
-        for category in self.CATEGORIES:
+        for idx, category in enumerate(self.CATEGORIES, 1):
+            logger.info(f"\n{'='*60}")
+            logger.info(f"📂 CATEGORY {idx}/{len(self.CATEGORIES)}: {category}")
+            logger.info(f"{'='*60}")
+            
             products = self.scrape_category(category, seen_skus)
             all_products.extend(products)
+            
+            # 🆕 ЗАГАЛЬНИЙ ПРОГРЕС після кожної категорії
+            elapsed = (datetime.now() - start_time).total_seconds() / 60
+            speed = len(all_products) / elapsed if elapsed > 0 else 0
+            categories_left = len(self.CATEGORIES) - idx
+            eta = (categories_left * elapsed / idx) if idx > 0 else 0
+            
+            logger.info(f"\n{'='*60}")
+            logger.info(f"📊 OVERALL PROGRESS")
+            logger.info(f"{'='*60}")
+            logger.info(f"Categories: {idx}/{len(self.CATEGORIES)} ({idx/len(self.CATEGORIES)*100:.1f}%)")
+            logger.info(f"Total products: {len(all_products)} ({len(seen_skus)} unique)")
+            logger.info(f"Speed: {speed:.1f} products/min")
+            logger.info(f"Elapsed: {elapsed:.1f} min")
+            logger.info(f"ETA: {eta:.1f} min (~{eta/60:.1f} hours)")
+            logger.info(f"Errors: {self.stats['errors']}")
+            logger.info(f"{'='*60}\n")
             
             self.stats['total_products'] = len(all_products)
             self.stats['unique_products'] = len(seen_skus)

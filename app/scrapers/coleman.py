@@ -172,7 +172,6 @@ class ColemanScraper:
         return products
     
     def scrape_all_products(self) -> List[Dict[str, str]]:
-        """Парсить всі товари з усіх категорій"""
         logger.info("="*60)
         logger.info("Starting Coleman Furniture scraping")
         logger.info(f"Categories: {len(self.category_ids)}")
@@ -184,15 +183,43 @@ class ColemanScraper:
         
         all_products = []
         seen_skus = set()
+        start_time = datetime.now()
+        last_progress_count = 0
         
         for idx, (category_name, category_id) in enumerate(self.category_ids.items(), 1):
-            logger.info(f"[{idx}/{len(self.category_ids)}] Processing: {category_name}")
+            logger.info(f"\n{'='*60}")
+            logger.info(f"📂 [{idx}/{len(self.category_ids)}] {category_name}")
+            logger.info(f"{'='*60}")
             
             products = self.scrape_category(category_id, category_name, seen_skus)
             all_products.extend(products)
             
             self.stats['total_products'] = len(all_products)
             self.stats['unique_products'] = len(seen_skus)
+            
+            # 🆕 ПРОГРЕС кожні 1000 товарів (або після кожної категорії)
+            if len(all_products) - last_progress_count >= 1000 or idx % 5 == 0:
+                elapsed = (datetime.now() - start_time).total_seconds() / 60
+                speed = len(all_products) / elapsed if elapsed > 0 else 0
+                
+                # Оцінка скільки ще категорій
+                categories_left = len(self.category_ids) - idx
+                avg_per_category = len(all_products) / idx if idx > 0 else 0
+                estimated_remaining = categories_left * avg_per_category
+                eta = estimated_remaining / speed if speed > 0 else 0
+                
+                logger.info(f"\n{'🔥'*30}")
+                logger.info(f"📊 COLEMAN PROGRESS")
+                logger.info(f"{'🔥'*30}")
+                logger.info(f"Categories: {idx}/{len(self.category_ids)} ({idx/len(self.category_ids)*100:.1f}%)")
+                logger.info(f"Products: {len(all_products):,} ({len(seen_skus):,} unique)")
+                logger.info(f"Speed: {speed:.1f} products/min")
+                logger.info(f"Elapsed: {elapsed:.1f} min ({elapsed/60:.1f} hours)")
+                logger.info(f"ETA: {eta:.1f} min (~{eta/60:.1f} hours)")
+                logger.info(f"Errors: {self.stats['errors']}")
+                logger.info(f"{'🔥'*30}\n")
+                
+                last_progress_count = len(all_products)
             
             # Затримка між категоріями
             time.sleep(1)
@@ -204,7 +231,7 @@ class ColemanScraper:
         logger.info("="*60)
         
         return all_products
-    
+
     def remove_duplicates(self, products: List[dict]) -> List[dict]:
         """Видаляє дублікати по SKU"""
         seen_skus = set()

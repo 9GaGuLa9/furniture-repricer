@@ -173,39 +173,56 @@ class AFAScraper:
         return products
     
     def scrape_all_products(self) -> List[Dict[str, str]]:
-        """Парсить всі товари з усіх vendors"""
         logger.info("="*60)
-        logger.info("Starting AFA Stores scraping (Vendor Filter Method)")
-        
-        # TEST MODE: тільки 1 vendor
-        vendors_to_scrape = self.vendors
-        if self.test_mode:
-            # Взяти перший vendor
-            first_key = list(self.vendors.keys())[0]
-            vendors_to_scrape = {first_key: self.vendors[first_key]}
-            logger.info(f"TEST MODE: Limited to 1 vendor ({first_key})")
-        
-        logger.info(f"Vendors: {len(vendors_to_scrape)}")
+        logger.info("Starting AFA Stores scraping")
         logger.info("="*60)
+        
+        # Отримати список колекцій
+        collections = self.get_collections()
+        
+        if not collections:
+            logger.error("No collections found!")
+            return []
+        
+        logger.info(f"Will process {len(collections)} collections")
         
         all_products = []
         seen_skus = set()
+        start_time = datetime.now()
         
-        for vendor_key, vendor_name in vendors_to_scrape.items():
-            logger.info(f"[{self.stats['vendors_processed']+1}/{len(vendors_to_scrape)}] Processing: {vendor_key}")
+        for idx, collection_url in enumerate(collections, 1):
+            logger.info(f"\n{'='*60}")
+            logger.info(f"📂 COLLECTION {idx}/{len(collections)}")
+            logger.info(f"{'='*60}")
             
-            products = self.fetch_products_by_vendor(vendor_name, vendor_key, seen_skus)
+            products = self.scrape_collection(collection_url, seen_skus)
             all_products.extend(products)
             
             self.stats['total_products'] = len(all_products)
             self.stats['unique_products'] = len(seen_skus)
             
-            # Затримка між vendors
-            time.sleep(2)
+            # 🆕 ПРОГРЕС після кожної колекції
+            elapsed = (datetime.now() - start_time).total_seconds() / 60
+            speed = len(all_products) / elapsed if elapsed > 0 else 0
+            collections_left = len(collections) - idx
+            eta = (collections_left * elapsed / idx) if idx > 0 else 0
+            
+            logger.info(f"\n{'='*60}")
+            logger.info(f"📊 AFA PROGRESS")
+            logger.info(f"{'='*60}")
+            logger.info(f"Collections: {idx}/{len(collections)} ({idx/len(collections)*100:.1f}%)")
+            logger.info(f"Products: {len(all_products)} ({len(seen_skus)} unique)")
+            logger.info(f"Speed: {speed:.1f} products/min")
+            logger.info(f"Elapsed: {elapsed:.1f} min")
+            logger.info(f"ETA: {eta:.1f} min (~{eta/60:.1f} hours)")
+            logger.info(f"{'='*60}\n")
+            
+            # Затримка між колекціями
+            time.sleep(3)
         
         logger.info("="*60)
         logger.info(f"Completed: {len(all_products)} products from {len(seen_skus)} unique SKUs")
-        logger.info(f"Vendors processed: {self.stats['vendors_processed']}")
+        logger.info(f"Collections processed: {self.stats['categories_processed']}")
         logger.info(f"Errors: {self.stats['errors']}")
         logger.info("="*60)
         
