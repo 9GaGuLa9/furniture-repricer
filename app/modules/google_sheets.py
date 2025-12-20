@@ -582,31 +582,31 @@ class RepricerSheetsManager:
             # Додати оновлення для цього товару
             if 'suggest_price' in prices:
                 all_updates.append({
-                    'range': f'{sheet_name}!E{row_num}',
+                    'range': f'E{row_num}',
                     'values': [[prices['suggest_price']]]
                 })
             
             if 'site1_price' in prices:
                 all_updates.append({
-                    'range': f'{sheet_name}!G{row_num}:H{row_num}',
+                    'range': f'G{row_num}:H{row_num}',
                     'values': [[prices.get('site1_price'), prices.get('site1_url', '')]]
                 })
             
             if 'site2_price' in prices:
                 all_updates.append({
-                    'range': f'{sheet_name}!I{row_num}:J{row_num}',
+                    'range': f'I{row_num}:J{row_num}',
                     'values': [[prices.get('site2_price'), prices.get('site2_url', '')]]
                 })
             
             if 'site3_price' in prices:
                 all_updates.append({
-                    'range': f'{sheet_name}!K{row_num}:L{row_num}',
+                    'range': f'K{row_num}:L{row_num}',
                     'values': [[prices.get('site3_price'), prices.get('site3_url', '')]]
                 })
             
             # Last update (колонка Q)
             all_updates.append({
-                'range': f'{sheet_name}!Q{row_num}',
+                'range': f'Q{row_num}',
                 'values': [[datetime.now().strftime('%Y-%m-%d %H:%M:%S')]]
             })
             

@@ -240,6 +240,7 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
                 self._random_delay()
         
         logger.info(f"Category {category}: collected {len(category_products)} products")
+        print(f"Category {category}: collected {len(category_products)} products")
         self.stats['categories_processed'] += 1
         
         return category_products
@@ -279,7 +280,6 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
 
 def scrape_onestopbedrooms(config: dict) -> List[Dict[str, str]]:
     """Головна функція для парсингу 1StopBedrooms"""
-    input("Відключи VPN Enter:")
     scraper = OneStopBedroomsScraper(config)
     results = scraper.scrape_all_products()
     return results

@@ -226,60 +226,256 @@ class FurnitureRepricer:
             return competitor_data
     
     def _match_products(self, client_products: List[Dict], 
-                       competitor_data: dict) -> List[Dict]:
+                    competitor_data: dict) -> List[Dict]:
         """
         4. Співставити товари за SKU
         Знаходить відповідні товари конкурентів для кожного товару клієнта
+        
+        З ДЕТАЛЬНИМ DEBUG LOGGING
         """
         with LogBlock("Matching Products by SKU", self.logger):
-            matched_count = 0
             
-            for product in client_products:
+            # ============================================================
+            # 🆕 DEBUG: Показати статистику та приклади SKU
+            # ============================================================
+            
+            self.logger.info("="*60)
+            self.logger.info("SKU MATCHING DEBUG INFO")
+            self.logger.info("="*60)
+            
+            # Показати кількість товарів від кожного конкурента
+            onestop_count = len(competitor_data.get('onestopbedrooms', []))
+            coleman_count = len(competitor_data.get('coleman', []))
+            afa_count = len(competitor_data.get('afa', []))
+            
+            self.logger.info(f"Competitor data available:")
+            self.logger.info(f"  1StopBedrooms: {onestop_count} products")
+            self.logger.info(f"  Coleman: {coleman_count} products")
+            self.logger.info(f"  AFA: {afa_count} products")
+            self.logger.info(f"Client products: {len(client_products)}")
+            
+            # Показати приклади SKU з кожного джерела
+            if client_products:
+                client_sample = client_products[0]
+                client_sku = client_sample.get('sku') or client_sample.get('SKU')
+                self.logger.info(f"\nDEBUG: Client SKU example: '{client_sku}'")
+                self.logger.info(f"  Type: {type(client_sku)}")
+                self.logger.info(f"  Length: {len(client_sku) if client_sku else 0}")
+            
+            if competitor_data.get('onestopbedrooms'):
+                onestop_sample = competitor_data['onestopbedrooms'][0]
+                onestop_sku = onestop_sample.get('sku', '')
+                self.logger.info(f"\nDEBUG: 1StopBedrooms SKU example: '{onestop_sku}'")
+                self.logger.info(f"  Type: {type(onestop_sku)}")
+                self.logger.info(f"  Sample data: {onestop_sample}")
+            
+            if competitor_data.get('coleman'):
+                coleman_sample = competitor_data['coleman'][0]
+                coleman_sku = coleman_sample.get('sku', '')
+                self.logger.info(f"\nDEBUG: Coleman SKU example: '{coleman_sku}'")
+                self.logger.info(f"  Type: {type(coleman_sku)}")
+                self.logger.info(f"  Sample data: {coleman_sample}")
+            
+            if competitor_data.get('afa'):
+                afa_sample = competitor_data['afa'][0]
+                afa_sku = afa_sample.get('sku', '')
+                self.logger.info(f"\nDEBUG: AFA SKU example: '{afa_sku}'")
+                self.logger.info(f"  Type: {type(afa_sku)}")
+                self.logger.info(f"  Sample data: {afa_sample}")
+            
+            # Показати налаштування matcher
+            self.logger.info(f"\nSKU Matcher config:")
+            self.logger.info(f"  Strategy: {self.sku_matcher.strategy}")
+            self.logger.info(f"  Case sensitive: {self.sku_matcher.case_sensitive}")
+            self.logger.info(f"  Delimiter: '{self.sku_matcher.delimiter}'")
+            if self.sku_matcher.strategy == 'fuzzy':
+                self.logger.info(f"  Fuzzy threshold: {self.sku_matcher.fuzzy_threshold}")
+            
+            # Тестові matching для перших SKU
+            if client_products and competitor_data.get('coleman'):
+                test_client = client_sku
+                test_coleman = coleman_sku
+                match_result = self.sku_matcher.matches(test_client, test_coleman)
+                self.logger.info(f"\nTest match: '{test_client}' vs '{test_coleman}'")
+                self.logger.info(f"  Result: {match_result}")
+                
+                # Якщо fuzzy - показати score
+                if self.sku_matcher.strategy == 'fuzzy':
+                    score = self.sku_matcher.fuzzy_match(test_client, test_coleman)
+                    self.logger.info(f"  Fuzzy score: {score:.3f}")
+            
+            self.logger.info("="*60)
+            
+            # ============================================================
+            # MAIN MATCHING LOOP
+            # ============================================================
+            
+            matched_count = 0
+            match_stats = {
+                'onestopbedrooms': 0,
+                'coleman': 0,
+                'afa': 0,
+                'total_attempts': 0
+            }
+            
+            # Логувати перші 3 товари детально
+            debug_first_n = 3
+            
+            for idx, product in enumerate(client_products):
                 client_sku = product.get('sku') or product.get('SKU')
                 if not client_sku:
                     continue
                 
+                match_stats['total_attempts'] += 1
+                debug_mode = (idx < debug_first_n)
+                
+                if debug_mode:
+                    self.logger.info(f"\n--- Product {idx+1}/{len(client_products)} ---")
+                    self.logger.info(f"Client SKU: '{client_sku}'")
+                
                 # Знайти відповідні товари у конкурентів
                 competitor_prices = []
+                product_matched = False
                 
+                # ============================================================
                 # 1StopBedrooms
+                # ============================================================
+                if debug_mode:
+                    self.logger.info("  Checking 1StopBedrooms...")
+                
+                onestop_matched = False
                 for comp_product in competitor_data.get('onestopbedrooms', []):
-                    if self.sku_matcher.matches(client_sku, comp_product.get('sku', '')):
+                    comp_sku = comp_product.get('sku', '')
+                    
+                    if self.sku_matcher.matches(client_sku, comp_sku):
                         product['site1_sku'] = comp_product['sku']
                         product['site1_price'] = comp_product.get('price')
                         product['site1_url'] = comp_product.get('url')
+                        
                         if comp_product.get('price'):
                             competitor_prices.append(float(comp_product['price']))
+                        
+                        match_stats['onestopbedrooms'] += 1
+                        onestop_matched = True
+                        product_matched = True
+                        
+                        if debug_mode:
+                            self.logger.info(f"    ✓ MATCH! '{comp_sku}' - ${comp_product.get('price')}")
+                        
                         break
                 
+                if debug_mode and not onestop_matched:
+                    self.logger.info(f"    ✗ No match in 1StopBedrooms")
+                
+                # ============================================================
                 # Coleman
+                # ============================================================
+                if debug_mode:
+                    self.logger.info("  Checking Coleman...")
+                
+                coleman_matched = False
                 for comp_product in competitor_data.get('coleman', []):
-                    if self.sku_matcher.matches(client_sku, comp_product.get('sku', '')):
+                    comp_sku = comp_product.get('sku', '')
+                    
+                    if self.sku_matcher.matches(client_sku, comp_sku):
                         product['site2_sku'] = comp_product['sku']
                         product['site2_price'] = comp_product.get('price')
                         product['site2_url'] = comp_product.get('url')
+                        
                         if comp_product.get('price'):
                             competitor_prices.append(float(comp_product['price']))
+                        
+                        match_stats['coleman'] += 1
+                        coleman_matched = True
+                        product_matched = True
+                        
+                        if debug_mode:
+                            self.logger.info(f"    ✓ MATCH! '{comp_sku}' - ${comp_product.get('price')}")
+                        
                         break
                 
+                if debug_mode and not coleman_matched:
+                    self.logger.info(f"    ✗ No match in Coleman")
+                
+                # ============================================================
                 # AFA
+                # ============================================================
+                if debug_mode:
+                    self.logger.info("  Checking AFA...")
+                
+                afa_matched = False
                 for comp_product in competitor_data.get('afa', []):
-                    if self.sku_matcher.matches(client_sku, comp_product.get('sku', '')):
+                    comp_sku = comp_product.get('sku', '')
+                    
+                    if self.sku_matcher.matches(client_sku, comp_sku):
                         product['site3_sku'] = comp_product['sku']
                         product['site3_price'] = comp_product.get('price')
                         product['site3_url'] = comp_product.get('url')
+                        
                         if comp_product.get('price'):
                             competitor_prices.append(float(comp_product['price']))
+                        
+                        match_stats['afa'] += 1
+                        afa_matched = True
+                        product_matched = True
+                        
+                        if debug_mode:
+                            self.logger.info(f"    ✓ MATCH! '{comp_sku}' - ${comp_product.get('price')}")
+                        
                         break
                 
-                # Зберегти список цін конкурентів
+                if debug_mode and not afa_matched:
+                    self.logger.info(f"    ✗ No match in AFA")
+                
+                # ============================================================
+                # Зберегти результат
+                # ============================================================
+                
                 product['competitor_prices'] = competitor_prices
                 
-                if competitor_prices:
+                if product_matched:
                     matched_count += 1
+                    
+                    if debug_mode:
+                        self.logger.info(f"  Result: MATCHED with {len(competitor_prices)} competitors")
+                        self.logger.info(f"  Prices: {competitor_prices}")
+                else:
+                    if debug_mode:
+                        self.logger.info(f"  Result: NO MATCHES")
             
+            # ============================================================
+            # 🆕 DEBUG: Фінальна статистика
+            # ============================================================
+            
+            self.logger.info("\n" + "="*60)
+            self.logger.info("MATCHING RESULTS")
+            self.logger.info("="*60)
+            self.logger.info(f"Total client products: {len(client_products)}")
+            self.logger.info(f"Products matched: {matched_count} ({matched_count/len(client_products)*100:.1f}%)")
+            self.logger.info(f"\nMatches by competitor:")
+            self.logger.info(f"  1StopBedrooms: {match_stats['onestopbedrooms']}")
+            self.logger.info(f"  Coleman: {match_stats['coleman']}")
+            self.logger.info(f"  AFA: {match_stats['afa']}")
+            self.logger.info(f"\nAverage matches per product: {sum([match_stats['onestopbedrooms'], match_stats['coleman'], match_stats['afa']])/len(client_products):.2f}")
+            
+            # Якщо matched = 0, показати додаткову діагностику
+            if matched_count == 0:
+                self.logger.warning("\n⚠️ WARNING: NO MATCHES FOUND!")
+                self.logger.warning("Possible reasons:")
+                self.logger.warning("1. SKU formats don't match (check examples above)")
+                self.logger.warning("2. Case sensitivity issue (try case_sensitive: false)")
+                self.logger.warning("3. Special characters or delimiters differ")
+                self.logger.warning("4. SKUs use different naming conventions")
+                self.logger.warning("\nSuggested fixes:")
+                self.logger.warning("- Set 'case_sensitive: false' in config.yaml")
+                self.logger.warning("- Try 'strategy: fuzzy' for approximate matching")
+                self.logger.warning("- Check if SKUs have prefixes/suffixes that need stripping")
+            
+            self.logger.info("="*60)
+            
+            # Зберегти статистику
             self.stats['matched_products'] = matched_count
-            self.logger.info(f"Matched {matched_count} products with competitors")
+            self.logger.info(f"\nMatched {matched_count} products with competitors")
             
             return client_products
     
@@ -290,6 +486,13 @@ class FurnitureRepricer:
         """
         with LogBlock("Calculating Suggested Prices", self.logger):
             try:
+                # 🆕 Нормалізувати назви колонок
+                for product in products:
+                    if 'Our Cost' in product:
+                        product['cost'] = product['Our Cost']
+                    if 'Our Sales Price' in product:
+                        product['current_price'] = product['Our Sales Price']
+
                 # Використати batch processor
                 products_with_prices = self.pricing_processor.process_products(products)
                 

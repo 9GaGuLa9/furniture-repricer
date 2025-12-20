@@ -98,7 +98,7 @@ class BatchPricingProcessor:
         results = []
         for product in products:
             try:
-                cost = float(product.get('cost', 0))
+                cost = float(product.get('Our Cost') or product.get('cost') or product.get('Cost') or 0)
                 current_price = float(product.get('current_price') or 0)
                 
                 competitor_prices = []

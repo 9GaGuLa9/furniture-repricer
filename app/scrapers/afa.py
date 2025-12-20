@@ -1,250 +1,211 @@
 """
-AFA Stores Scraper
-Парсить ціни з afastores.com через cloudscraper (Cloudflare bypass)
+AFA Stores Scraper (Vendor Filter Method)
+Парсить ціни з afastores.com через Shopify JSON API
+Використовує /products.json?vendor=VendorName - НАБАГАТО ШВИДШЕ!
 """
 
+import requests
 import time
 import logging
 from typing import List, Dict, Optional
 from datetime import datetime
-from urllib.parse import urljoin
-from bs4 import BeautifulSoup
 
 try:
     import cloudscraper
     CLOUDSCRAPER_AVAILABLE = True
 except ImportError:
     CLOUDSCRAPER_AVAILABLE = False
-    import requests
     logging.warning("cloudscraper not available, using standard requests")
 
 logger = logging.getLogger("afa")
 
 
 class AFAScraper:
-    """Scraper для afastores.com"""
+    """Scraper для afastores.com через Shopify API"""
     
     BASE_URL = "https://www.afastores.com"
     
+    # Список vendors для парсингу
+    DEFAULT_VENDORS = {
+        "steve-silver": "Steve Silver",
+        "martin-furniture": "Martin Furniture",
+        "legacy-classic": "Legacy Classic",
+        "coaster": "Coaster",
+        "homelegance": "Homelegance",
+        "lifestyle": "Lifestyle"
+    }
+    
     def __init__(self, config: dict):
         self.config = config
-        self.delay_min = config.get('delay_min', 2.0)
-        self.delay_max = config.get('delay_max', 5.0)
+        self.delay_min = config.get('delay_min', 1.0)
+        self.delay_max = config.get('delay_max', 2.0)
         self.retry_attempts = config.get('retry_attempts', 3)
         self.timeout = config.get('timeout', 30)
+        self.test_mode = config.get('test_mode', False)
+        
+        # Vendors для парсингу (можна override в config)
+        self.vendors = config.get('vendors', self.DEFAULT_VENDORS)
         
         self.stats = {
             'total_products': 0,
             'unique_products': 0,
             'errors': 0,
-            'categories_processed': 0,
-            'collections_found': 0
+            'vendors_processed': 0
         }
         
+        # Вибрати scraper
         if CLOUDSCRAPER_AVAILABLE:
             self.scraper = cloudscraper.create_scraper(
                 browser={
                     'browser': 'chrome',
                     'platform': 'windows',
                     'mobile': False
-                },
-                delay=10
+                }
             )
+            logger.info("AFA Stores scraper initialized (cloudscraper)")
         else:
             self.scraper = requests.Session()
             self.scraper.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json'
             })
-        
-        logger.info("AFA Stores scraper initialized")
-        logger.info(f"Using {'cloudscraper' if CLOUDSCRAPER_AVAILABLE else 'requests'}")
+            logger.info("AFA Stores scraper initialized (requests)")
     
     def _random_delay(self):
         """Затримка між запитами"""
         import random
         time.sleep(random.uniform(self.delay_min, self.delay_max))
     
-    def get_collections(self) -> List[str]:
-        """Отримати список всіх колекцій (категорій)"""
-        logger.info(f"Fetching collections from {self.BASE_URL}")
+    def fetch_products_by_vendor(self, vendor_name: str, vendor_key: str, 
+                                 seen_skus: set) -> List[Dict[str, str]]:
+        """
+        Парсить всі товари для конкретного vendor через Shopify API
         
-        try:
-            resp = self.scraper.get(self.BASE_URL, timeout=self.timeout)
-            resp.raise_for_status()
-            
-            soup = BeautifulSoup(resp.text, "html.parser")
-            
-            collections = []
-            for a in soup.find_all("a", href=True):
-                href = a["href"]
-                # Знаходимо всі посилання на колекції
-                if href.startswith("/collections/") and not href.startswith("/collections/steve-silver"):
-                    full_url = urljoin(self.BASE_URL, href)
-                    collections.append(full_url)
-            
-            collections = sorted(set(collections))
-            self.stats['collections_found'] = len(collections)
-            
-            logger.info(f"Found {len(collections)} collections")
-            return collections
-            
-        except Exception as e:
-            logger.error(f"Failed to get collections: {e}")
-            self.stats['errors'] += 1
-            return []
-    
-    def _extract_product_data(self, product_element) -> Optional[Dict[str, str]]:
-        """Витягти дані товару з HTML елемента"""
-        try:
-            # Знайти посилання на товар
-            link = product_element.find('a', class_='product-card__link')
-            if not link:
-                return None
-            
-            url = urljoin(self.BASE_URL, link.get('href', ''))
-            
-            # Знайти назву товару (часто містить SKU)
-            title_elem = product_element.find('h3', class_='product-card__title')
-            title = title_elem.text.strip() if title_elem else ''
-            
-            # Витягти SKU з назви або атрибутів
-            sku = None
-            sku_elem = product_element.find(attrs={'data-sku': True})
-            if sku_elem:
-                sku = sku_elem.get('data-sku')
-            elif title:
-                # Спробувати витягти SKU з назви (часто в кінці)
-                # Наприклад: "Product Name - SKU123"
-                parts = title.split('-')
-                if len(parts) > 1:
-                    sku = parts[-1].strip()
-                else:
-                    sku = title.split()[0] if title.split() else None
-            
-            # Знайти ціну
-            price = None
-            price_elem = product_element.find('span', class_='price')
-            if not price_elem:
-                price_elem = product_element.find(class_='product-card__price')
-            
-            if price_elem:
-                price_text = price_elem.text.strip()
-                # Видалити $ та інші символи
-                price_text = price_text.replace('$', '').replace(',', '').strip()
-                try:
-                    price = float(price_text)
-                except ValueError:
-                    pass
-            
-            if sku and price:
-                return {
-                    'sku': sku,
-                    'price': str(price),
-                    'url': url,
-                    'title': title
-                }
-            
-            return None
-            
-        except Exception as e:
-            logger.debug(f"Error extracting product data: {e}")
-            return None
-    
-    def scrape_collection(self, collection_url: str, seen_skus: set) -> List[Dict[str, str]]:
-        """Парсить всі товари з колекції"""
-        collection_name = collection_url.split('/')[-1]
-        logger.info(f"Processing collection: {collection_name}")
+        Args:
+            vendor_name: Назва vendor в Shopify (напр. "Steve Silver")
+            vendor_key: Ключ для статистики (напр. "steve-silver")
+            seen_skus: Set для відстеження дублікатів
+        
+        Returns:
+            Список товарів з цього vendor
+        """
+        logger.info(f"Processing vendor: {vendor_key} ({vendor_name})")
         
         products = []
         page = 1
+        limit = 250  # Максимум дозволений Shopify
         
-        while True:
-            # URL з пагінацією
-            url = f"{collection_url}?page={page}"
+        # TEST MODE: тільки 1 сторінка
+        max_pages = 1 if self.test_mode else 999
+        
+        while page <= max_pages:
+            url = f"{self.BASE_URL}/products.json"
+            params = {
+                'vendor': vendor_name,
+                'limit': limit,
+                'page': page
+            }
             
             try:
                 logger.debug(f"  Fetching page {page}...")
-                resp = self.scraper.get(url, timeout=self.timeout)
-                resp.raise_for_status()
+                response = self.scraper.get(url, params=params, timeout=self.timeout)
+                response.raise_for_status()
                 
-                soup = BeautifulSoup(resp.text, "html.parser")
+                data = response.json()
+                page_products = data.get('products', [])
                 
-                # Знайти всі товари на сторінці
-                # Різні сайти використовують різні класи, шукаємо декілька варіантів
-                product_elements = soup.find_all('div', class_='product-card')
-                if not product_elements:
-                    product_elements = soup.find_all('div', class_='product-item')
-                if not product_elements:
-                    product_elements = soup.find_all('article', class_='product')
-                
-                if not product_elements:
-                    logger.info(f"  Collection {collection_name}: no products on page {page}")
+                if not page_products:
+                    logger.info(f"  Page {page} is empty, stopping")
                     break
                 
-                # Витягти дані з кожного товару
-                page_products = 0
-                for elem in product_elements:
-                    product_data = self._extract_product_data(elem)
-                    if product_data:
-                        sku = product_data['sku']
-                        if sku not in seen_skus:
-                            seen_skus.add(sku)
-                            products.append(product_data)
-                            page_products += 1
+                # Обробити товари
+                new_products = 0
+                for product in page_products:
+                    # Витягти дані з кожного варіанту
+                    for variant in product.get('variants', []):
+                        sku = variant.get('sku', '').strip()
+                        
+                        if not sku or sku in seen_skus:
+                            continue
+                        
+                        seen_skus.add(sku)
+                        new_products += 1
+                        
+                        # Зберегти товар
+                        products.append({
+                            'sku': sku,
+                            'price': variant.get('price', ''),
+                            'url': f"{self.BASE_URL}/products/{product.get('handle')}",
+                            'title': product.get('title', ''),
+                            'vendor': product.get('vendor', ''),
+                            'product_type': product.get('product_type', ''),
+                            'available': variant.get('available', False),
+                            'compare_at_price': variant.get('compare_at_price'),
+                            'vendor_key': vendor_key
+                        })
                 
-                logger.info(f"  Page {page}: found {page_products} new products (total: {len(products)})")
+                logger.info(f"  Page {page}: {len(page_products)} products, {new_products} new variants")
                 
-                # Перевірити чи є наступна сторінка
-                next_page = soup.find('a', class_='next')
-                if not next_page or not next_page.get('href'):
+                # Якщо отримали менше ніж limit - це остання сторінка
+                if len(page_products) < limit:
+                    logger.info(f"  Received less than {limit} products, this is the last page")
                     break
                 
                 page += 1
                 self._random_delay()
                 
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 404:
+                    logger.info(f"  Page {page} not found (404), stopping")
+                    break
+                else:
+                    logger.error(f"HTTP error on page {page}: {e}")
+                    self.stats['errors'] += 1
+                    break
             except Exception as e:
-                logger.error(f"Error on page {page} of {collection_name}: {e}")
+                logger.error(f"Error on page {page} of {vendor_key}: {e}")
                 self.stats['errors'] += 1
                 break
         
-        logger.info(f"Collection {collection_name}: collected {len(products)} products")
-        self.stats['categories_processed'] += 1
+        logger.info(f"Vendor {vendor_key}: collected {len(products)} products")
+        self.stats['vendors_processed'] += 1
         
         return products
     
     def scrape_all_products(self) -> List[Dict[str, str]]:
-        """Парсить всі товари з усіх колекцій"""
+        """Парсить всі товари з усіх vendors"""
         logger.info("="*60)
-        logger.info("Starting AFA Stores scraping")
+        logger.info("Starting AFA Stores scraping (Vendor Filter Method)")
+        
+        # TEST MODE: тільки 1 vendor
+        vendors_to_scrape = self.vendors
+        if self.test_mode:
+            # Взяти перший vendor
+            first_key = list(self.vendors.keys())[0]
+            vendors_to_scrape = {first_key: self.vendors[first_key]}
+            logger.info(f"TEST MODE: Limited to 1 vendor ({first_key})")
+        
+        logger.info(f"Vendors: {len(vendors_to_scrape)}")
         logger.info("="*60)
-        
-        # Отримати список колекцій
-        collections = self.get_collections()
-        
-        if not collections:
-            logger.error("No collections found!")
-            return []
-        
-        logger.info(f"Will process {len(collections)} collections")
         
         all_products = []
         seen_skus = set()
         
-        for idx, collection_url in enumerate(collections, 1):
-            logger.info(f"[{idx}/{len(collections)}] Processing collection")
+        for vendor_key, vendor_name in vendors_to_scrape.items():
+            logger.info(f"[{self.stats['vendors_processed']+1}/{len(vendors_to_scrape)}] Processing: {vendor_key}")
             
-            products = self.scrape_collection(collection_url, seen_skus)
+            products = self.fetch_products_by_vendor(vendor_name, vendor_key, seen_skus)
             all_products.extend(products)
             
             self.stats['total_products'] = len(all_products)
             self.stats['unique_products'] = len(seen_skus)
             
-            # Затримка між колекціями
-            time.sleep(3)
+            # Затримка між vendors
+            time.sleep(2)
         
         logger.info("="*60)
         logger.info(f"Completed: {len(all_products)} products from {len(seen_skus)} unique SKUs")
-        logger.info(f"Collections processed: {self.stats['categories_processed']}")
+        logger.info(f"Vendors processed: {self.stats['vendors_processed']}")
         logger.info(f"Errors: {self.stats['errors']}")
         logger.info("="*60)
         
@@ -262,37 +223,136 @@ def scrape_afa(config: dict) -> List[Dict[str, str]]:
     return results
 
 
+# ============================================================================
+# STANDALONE EXECUTION - Детальне тестування з збереженням у файли
+# ============================================================================
+
 if __name__ == "__main__":
-    # Тестування
-    import logging
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    import sys
+    from pathlib import Path
+    import json
+    import csv
+    
+    # Додати project root до path
+    project_root = Path(__file__).parent.parent.parent
+    sys.path.insert(0, str(project_root))
+    
+    # Налаштування логування
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(name)-8s | %(levelname)-8s | %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    
+    print("\n" + "="*70)
+    print("AFA STORES SCRAPER - STANDALONE TEST")
+    print("Vendor Filter Method (Shopify API)")
+    print("="*70)
+    print()
     
     if not CLOUDSCRAPER_AVAILABLE:
-        print("\n⚠️  WARNING: cloudscraper not installed!")
-        print("Install it with: pip install cloudscraper")
-        print("Continuing with standard requests (may fail due to Cloudflare)...\n")
+        print("⚠️  WARNING: cloudscraper not installed!")
+        print("For better Cloudflare bypass: pip install cloudscraper")
+        print("Continuing with standard requests...\n")
     
+    # Вибір режиму
+    print("Choose mode:")
+    print("1. Test mode (1 vendor, 1 page) - ШВИДКО ⚡")
+    print("2. Full mode (all vendors, all pages) - ПОВІЛЬНО ⏱")
+    choice = input("Enter choice [1/2, default=1]: ").strip() or "1"
+    
+    test_mode = (choice == "1")
+    
+    # Конфігурація
     test_config = {
-        'delay_min': 2.0,
-        'delay_max': 4.0,
+        'delay_min': 1.0,
+        'delay_max': 2.0,
         'retry_attempts': 3,
-        'timeout': 30
+        'timeout': 30,
+        'test_mode': test_mode
     }
     
-    print("\n" + "="*60)
-    print("ТЕСТ AFA STORES SCRAPER")
-    print("="*60 + "\n")
+    print()
+    print("="*70)
+    if test_mode:
+        print("⚡ TEST MODE: 1 vendor, 1 page (~30-60 seconds)")
+    else:
+        print("🔥 FULL MODE: All vendors, all pages (~5-10 minutes)")
+    print("="*70)
+    print()
     
+    # Запустити scraper
+    start_time = datetime.now()
     results = scrape_afa(test_config)
+    end_time = datetime.now()
+    duration = (end_time - start_time).total_seconds()
     
-    print("\n" + "="*60)
-    print(f"РЕЗУЛЬТАТ: {len(results)} товарів")
-    print("="*60)
+    print()
+    print("="*70)
+    print("SCRAPING COMPLETED!")
+    print("="*70)
+    print(f"Duration: {duration:.1f} seconds ({duration/60:.1f} minutes)")
+    print(f"Total products: {len(results)}")
+    print()
     
     if results:
-        print("\nПерші 5 товарів:")
+        # Показати приклади
+        print("="*70)
+        print("SAMPLE PRODUCTS (First 5):")
+        print("="*70)
         for i, product in enumerate(results[:5], 1):
             print(f"\n{i}. SKU: {product['sku']}")
-            print(f"   Title: {product['title'][:50]}...")
+            print(f"   Vendor: {product['vendor']} ({product['vendor_key']})")
             print(f"   Price: ${product['price']}")
+            print(f"   Title: {product['title'][:60]}...")
             print(f"   URL: {product['url'][:60]}...")
+        
+        # Статистика по vendors
+        print()
+        print("="*70)
+        print("BREAKDOWN BY VENDOR:")
+        print("="*70)
+        vendor_counts = {}
+        for product in results:
+            vendor = product['vendor_key']
+            vendor_counts[vendor] = vendor_counts.get(vendor, 0) + 1
+        
+        for vendor, count in sorted(vendor_counts.items()):
+            print(f"  {vendor}: {count} products")
+        
+        # Зберегти результати
+        save = input("\nSave results to files? [y/N]: ").strip().lower()
+        
+        if save == 'y':
+            output_dir = project_root / "output" / "afa"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # JSON
+            json_path = output_dir / f"afa_products_{timestamp}.json"
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=2, ensure_ascii=False)
+            print(f"✓ Saved JSON: {json_path}")
+            
+            # CSV
+            csv_path = output_dir / f"afa_products_{timestamp}.csv"
+            if results:
+                keys = results[0].keys()
+                with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.DictWriter(f, fieldnames=keys)
+                    writer.writeheader()
+                    writer.writerows(results)
+                print(f"✓ Saved CSV: {csv_path}")
+            
+            print()
+            print(f"Files saved to: {output_dir}")
+    else:
+        print("\n❌ No products found!")
+        print("Possible reasons:")
+        print("  - Cloudflare blocking (install cloudscraper)")
+        print("  - Network issues")
+        print("  - Vendor names changed")
+    
+    print()
+    print("="*70)

@@ -19,7 +19,7 @@ scrapers:
     timeout: 30
   
   onestopbedrooms:
-    enabled: true
+    enabled: false
     delay_min: 2.0
     delay_max: 5.0
   
@@ -30,8 +30,9 @@ scrapers:
   
   afa:
     enabled: false
-    delay_min: 2.0
-    delay_max: 5.0
+    test_mode: false      # ← 1 vendor, швидко!
+    delay_min: 1.0
+    delay_max: 2.0
 
 pricing:
   coefficients:
@@ -41,8 +42,9 @@ pricing:
 
 sku_matching:
   split_delimiter: ";"
-  case_sensitive: false
-  strategy: "exact"
+  case_sensitive: false  # ✅ Ігнорувати регістр
+  strategy: "fuzzy"      # ✅ Або спробувати fuzzy matching
+  fuzzy_threshold: 0.85
 
 telegram:
   enabled: false
