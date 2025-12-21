@@ -1,5 +1,23 @@
 # Прибрати
 based/
+**output/
+*.bat
+test_*
+*.txt
+
+# All JSON files (scraper results)
+*.json
+
+# Except example/sample files
+!*_sample.json
+!*_example.json
+
+# Logs from scraper runs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
 
 # Чутливі дані
 .env

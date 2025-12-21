@@ -197,12 +197,21 @@ class FurnitureRepricer:
                     self.logger.error(f"Failed to scrape 1StopBedrooms: {e}")
                     competitor_data['onestopbedrooms'] = []
             
-            # Coleman
+            # Coleman - ОНОВЛЕНО з підтримкою category_filter
             if self.config.is_scraper_enabled('coleman'):
                 try:
                     self.logger.info("Scraping Coleman Furniture...")
                     config = self.config.get_scraper_config('coleman')
-                    products = scrape_coleman(config)
+                    
+                    # Отримати category_filter з конфігу (опціонально)
+                    category_filter = config.get('category_filter', None)
+                    
+                    if category_filter:
+                        self.logger.info(f"Using category filter: {category_filter}")
+                    
+                    # Викликати scraper з фільтром
+                    products = scrape_coleman(config, category_filter)
+                    
                     competitor_data['coleman'] = products
                     self.stats['competitor2_products'] = len(products)
                     self.logger.info(f"✓ Coleman: {len(products)} products")
@@ -224,6 +233,7 @@ class FurnitureRepricer:
                     competitor_data['afa'] = []
             
             return competitor_data
+
     
     def _match_products(self, client_products: List[Dict], 
                     competitor_data: dict) -> List[Dict]:

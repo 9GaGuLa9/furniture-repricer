@@ -538,11 +538,7 @@ class RepricerSheetsManager:
         """
         Батчити всі оновлення разом (НАБАГАТО ШВИДШЕ!)
         
-        Args:
-            products: Список товарів з _prices_to_update для оновлення
-        
-        Returns:
-            Кількість оновлених товарів
+        ВИПРАВЛЕННЯ: Прибрано {sheet_name}! з усіх ranges
         """
         self.logger.info(f"Batch updating {len(products)} products...")
         
@@ -579,34 +575,36 @@ class RepricerSheetsManager:
             if not prices:
                 continue
             
-            # Додати оновлення для цього товару
+            # ✅ ВИПРАВЛЕНО: Прибрано {sheet_name}! з ranges
+            # Worksheet вже знає свою назву, не треба дублювати
+            
             if 'suggest_price' in prices:
                 all_updates.append({
-                    'range': f'E{row_num}',
+                    'range': f'E{row_num}',  # ✅ Було: f'{sheet_name}!E{row_num}'
                     'values': [[prices['suggest_price']]]
                 })
             
             if 'site1_price' in prices:
                 all_updates.append({
-                    'range': f'G{row_num}:H{row_num}',
+                    'range': f'G{row_num}:H{row_num}',  # ✅ Було: f'{sheet_name}!G{row_num}:H{row_num}'
                     'values': [[prices.get('site1_price'), prices.get('site1_url', '')]]
                 })
             
             if 'site2_price' in prices:
                 all_updates.append({
-                    'range': f'I{row_num}:J{row_num}',
+                    'range': f'I{row_num}:J{row_num}',  # ✅ Було: f'{sheet_name}!I{row_num}:J{row_num}'
                     'values': [[prices.get('site2_price'), prices.get('site2_url', '')]]
                 })
             
             if 'site3_price' in prices:
                 all_updates.append({
-                    'range': f'K{row_num}:L{row_num}',
+                    'range': f'K{row_num}:L{row_num}',  # ✅ Було: f'{sheet_name}!K{row_num}:L{row_num}'
                     'values': [[prices.get('site3_price'), prices.get('site3_url', '')]]
                 })
             
             # Last update (колонка Q)
             all_updates.append({
-                'range': f'Q{row_num}',
+                'range': f'Q{row_num}',  # ✅ Було: f'{sheet_name}!Q{row_num}'
                 'values': [[datetime.now().strftime('%Y-%m-%d %H:%M:%S')]]
             })
             
@@ -622,7 +620,7 @@ class RepricerSheetsManager:
             chunk_size = 500
             for i in range(0, len(all_updates), chunk_size):
                 chunk = all_updates[i:i+chunk_size]
-                self.client.batch_update(sheet_id, chunk)
+                self.client.batch_update(sheet_id, chunk, sheet_name)  # ✅ Передаємо sheet_name тут
                 
                 if i + chunk_size < len(all_updates):
                     time.sleep(1.0)  # Затримка між chunks

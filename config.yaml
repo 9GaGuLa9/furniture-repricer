@@ -1,4 +1,4 @@
-# Furniture Repricer - Configuration
+# Furniture Repricer - Configuration (FULLY OPTIMIZED)
 
 google_sheets:
   spreadsheet_id: "1MVUjRr6295RLsM8m_lHjKRZ_mIyalcLPVWTNos1oOM4"
@@ -11,46 +11,60 @@ google_sheets:
     name: "Data"
 
 scrapers:
+  # Emma Mason - ВИМКНЕНО (блокування по країні)
   emmamason:
-    enabled: true
+    enabled: false
     delay_min: 2.0
     delay_max: 5.0
     retry_attempts: 3
     timeout: 30
   
+  # 1StopBedrooms - GraphQL API
   onestopbedrooms:
-    enabled: false
-    delay_min: 2.0
-    delay_max: 5.0
+    enabled: true
+    delay_min: 1.0
+    delay_max: 3.0
+    retry_attempts: 3
+    timeout: 20
   
+  # Coleman - Manufacturer API (3 виробників)
+  # Martin Furniture, Steve Silver, Legacy Classic
   coleman:
     enabled: true
-    delay_min: 2.0
-    delay_max: 5.0
+    delay_min: 0.5           # Швидше - manufacturer endpoint
+    delay_max: 1.5
+    retry_attempts: 3
+    timeout: 20
   
+  # AFA - Shopify API + Vendor Filtering (3 виробників)
+  # Steve Silver, Martin Furniture, Legacy Classic Furniture
   afa:
-    enabled: false
-    test_mode: false      # ← 1 vendor, швидко!
-    delay_min: 1.0
+    enabled: true            # ← УВІМКНУТИ!
+    delay_min: 1.0           # Швидше - Shopify API
     delay_max: 2.0
+    retry_attempts: 3
+    timeout: 30
 
+# Pricing формула
 pricing:
   coefficients:
-    floor: 1.5
-    below_lowest: 1.0
-    max: 2.0
+    floor: 1.5              # Мінімум = Cost × 1.5
+    below_lowest: 1.0       # Suggest = Lowest - $1
+    max: 2.0                # Максимум = Cost × 2.0
 
+# SKU matching - ТІЛЬКИ ТОЧНИЙ ЗБІГ
 sku_matching:
   split_delimiter: ";"
-  case_sensitive: false  # ✅ Ігнорувати регістр
-  strategy: "fuzzy"      # ✅ Або спробувати fuzzy matching
-  fuzzy_threshold: 0.85
+  case_sensitive: false
+  strategy: "exact"         # Без brand fallback
 
+# Telegram (опціонально)
 telegram:
   enabled: false
   bot_token: "${TELEGRAM_BOT_TOKEN}"
   chat_id: "${TELEGRAM_CHAT_ID}"
 
+# Logging
 logging:
   level: "INFO"
   console:
@@ -59,8 +73,9 @@ logging:
     enabled: true
     directory: "./logs"
 
+# Development/Testing
 development:
-  test_mode: true
-  test_limit: 10
+  test_mode: false          # true для --test режиму
+  test_limit: 10            # Кількість товарів у --test
   debug:
-    dry_run: true
+    dry_run: false          # true = не записувати в Sheets

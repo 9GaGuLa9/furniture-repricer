@@ -1,11 +1,10 @@
 """
-Coleman Furniture Scraper
-Парсить ціни з colemanfurniture.com через REST API
+Coleman Furniture Scraper - FIXED VERSION
+Парсить тільки 3 конкретних виробників через manufacturer API endpoint
 """
 
 import requests
 import time
-import re
 import logging
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -14,10 +13,16 @@ logger = logging.getLogger("coleman")
 
 
 class ColemanScraper:
-    """Scraper для colemanfurniture.com"""
+    """Scraper для colemanfurniture.com - Тільки 3 виробників"""
     
     BASE_URL = "https://colemanfurniture.com"
-    HEADER_API = "https://colemanfurniture.com/api/v2/header?storeid=1"
+    
+    # Hardcode 3 manufacturer IDs
+    MANUFACTURERS = {
+        "Martin Furniture": 224,
+        "Steve Silver": 123,
+        "Legacy Classic": 22,
+    }
     
     def __init__(self, config: dict):
         self.config = config
@@ -26,228 +31,202 @@ class ColemanScraper:
         self.retry_attempts = config.get('retry_attempts', 3)
         self.timeout = config.get('timeout', 20)
         
-        self.category_ids = {}
         self.stats = {
             'total_products': 0,
             'unique_products': 0,
             'errors': 0,
-            'categories_processed': 0
+            'manufacturers_processed': 0
         }
         
-        logger.info("Coleman Furniture scraper initialized")
-        self._load_category_ids()
-    
-    def _load_category_ids(self):
-        """Завантажити ID категорій з API"""
-        try:
-            logger.info("Loading category IDs...")
-            response = requests.get(self.HEADER_API, timeout=self.timeout)
-            response.raise_for_status()
-            data = response.json()
-            
-            header = data.get("data", data).get("header", {})
-            menu_data = header.get("menu", [])
-            
-            self.category_ids = self._extract_ids(menu_data)
-            logger.info(f"Loaded {len(self.category_ids)} categories")
-            
-        except Exception as e:
-            logger.error(f"Failed to load category IDs: {e}")
-            self.category_ids = {}
-    
-    def _extract_ids(self, menu: List[dict]) -> dict:
-        """Рекурсивно витягує ID категорій з меню"""
-        ids = {}
-        
-        for item in menu:
-            # Пропускаємо Brands та інші непотрібні розділи
-            if item.get("title") == "Brands" or item.get("menuType") == "raw":
-                continue
-            
-            # Обробляємо підменю
-            if "subMenu" in item and item["subMenu"]:
-                for sub in item["subMenu"]:
-                    route = sub.get("route", "")
-                    match = re.search(r"id/(\d+)", route)
-                    if match:
-                        ids[sub.get("title")] = int(match.group(1))
-                    
-                    # Рекурсивно обробляємо вкладені підменю
-                    ids.update(self._extract_ids([sub]))
-        
-        return ids
+        logger.info("Coleman Furniture scraper initialized (3 manufacturers)")
     
     def _random_delay(self):
         """Затримка між запитами"""
         import random
         time.sleep(random.uniform(self.delay_min, self.delay_max))
     
-    def scrape_category(self, category_id: int, category_name: str, 
-                       seen_skus: set) -> List[Dict[str, str]]:
-        """Парсить всі товари з категорії"""
-        logger.info(f"Processing category: {category_name} (ID: {category_id})")
-        
-        products = []
-        page = 1
-        
-        headers = {
-            'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        
-        while True:
-            url = f"{self.BASE_URL}/catalog/category/view/id/{category_id}"
-            params = {
-                "order": "recommended",
-                "p": page,
-                "storeid": 1
-            }
-            
+    def _safe_request(self, url: str, params: dict, headers: dict) -> Optional[dict]:
+        """Виконує запит з retry логікою"""
+        for attempt in range(self.retry_attempts):
             try:
-                response = requests.get(url, params=params, headers=headers, 
-                                       timeout=self.timeout)
+                response = requests.get(
+                    url,
+                    params=params,
+                    headers=headers,
+                    timeout=self.timeout
+                )
                 response.raise_for_status()
                 
                 # Перевірка Content-Type
                 content_type = response.headers.get('Content-Type', '')
                 if 'application/json' not in content_type:
-                    logger.warning(f"Non-JSON response for {category_name} page {page}")
-                    break
-                
-                data = response.json()
-                
-                # Перевірка наявності товарів
-                page_products = data.get("data", {}).get("content", {}).get("products", [])
-                
-                if not page_products:
-                    logger.info(f"  Category {category_name}: collected {len(products)} products from {page-1} pages")
-                    break
-                
-                # Витягуємо дані товарів
-                for product in page_products:
-                    sku = product.get("sku")
-                    
-                    # Перевірка на дублікати
-                    if not sku or sku in seen_skus:
+                    logger.warning(f"Non-JSON response (attempt {attempt+1})")
+                    if attempt < self.retry_attempts - 1:
+                        time.sleep(3)
                         continue
-                    
-                    seen_skus.add(sku)
-                    
-                    # Витягуємо дані
-                    manufacturer = product.get("manufacturer", {})
-                    price_data = product.get("price", {})
-                    
-                    product_data = {
-                        "sku": sku,
-                        "manufacturer": manufacturer.get("title") if manufacturer else None,
-                        "price": price_data.get("final"),
-                        "url": product.get("url"),
-                        "category_name": category_name,
-                        "category_id": category_id
-                    }
-                    
-                    products.append(product_data)
+                    return None
                 
-                logger.info(f"  Page {page}: found {len(page_products)} products (total: {len(products)})")
-                
-                page += 1
-                self._random_delay()
+                return response.json()
                 
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 404:
-                    logger.info(f"  Category {category_name}: no more pages")
-                    break
-                else:
-                    logger.error(f"HTTP error on page {page}: {e}")
-                    self.stats['errors'] += 1
-                    break
+                    logger.debug(f"404 Not Found")
+                    return None
+                logger.warning(f"HTTP error (attempt {attempt+1}/{self.retry_attempts}): {e}")
             except Exception as e:
-                logger.error(f"Error on page {page} of {category_name}: {e}")
-                self.stats['errors'] += 1
-                break
+                logger.warning(f"Request error (attempt {attempt+1}/{self.retry_attempts}): {e}")
+            
+            if attempt < self.retry_attempts - 1:
+                time.sleep(5)
         
-        logger.info(f"Category {category_name}: collected {len(products)} products")
-        self.stats['categories_processed'] += 1
+        self.stats['errors'] += 1
+        return None
+    
+    def _extract_products(self, products_data: List[dict], manufacturer_name: str) -> List[Dict[str, str]]:
+        """Витягує дані товарів зі списку"""
+        products = []
+        
+        for product in products_data:
+            if not product:
+                continue
+            
+            sku = product.get("sku")
+            if not sku:
+                continue
+            
+            # Витягуємо дані
+            price_data = product.get("price", {})
+            manufacturer_data = product.get("manufacturer", {})
+            
+            products.append({
+                "sku": sku,
+                "manufacturer": manufacturer_data.get("title") or manufacturer_name,
+                "price": price_data.get("final"),
+                "url": product.get("url")
+            })
         
         return products
     
+    def scrape_manufacturer(self, manufacturer_name: str, manufacturer_id: int, 
+                           seen_skus: set) -> List[Dict[str, str]]:
+        """Парсить всі товари виробника"""
+        logger.info(f"Processing manufacturer: {manufacturer_name} (ID: {manufacturer_id})")
+        
+        manufacturer_products = []
+        page = 1
+        
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            "Referer": f"{self.BASE_URL}/martin-furniture.html"
+        }
+        
+        # Перший запит щоб дізнатись кількість сторінок
+        url = f"{self.BASE_URL}/manufacturer/detail/{manufacturer_id}"
+        params = {
+            "order": "recommended",
+            "p": 1,
+            "storeid": 1
+        }
+        
+        data = self._safe_request(url, params, headers)
+        if not data or "data" not in data:
+            logger.error(f"Failed to get data for {manufacturer_name}")
+            return []
+        
+        # Отримати інфо про пагінацію
+        try:
+            content = data["data"]["content"]
+            pager = content.get("pager", {})
+            
+            max_page = pager.get("total", 1)
+            items_count = pager.get("items", 0)
+            
+            logger.info(f"Manufacturer {manufacturer_name}: {items_count} items, {max_page} pages")
+            
+            # Витягти товари з першої сторінки
+            products_data = content.get("products", [])
+            products = self._extract_products(products_data, manufacturer_name)
+            
+            # Додати тільки унікальні SKU
+            for product in products:
+                sku = product["sku"]
+                if sku not in seen_skus:
+                    seen_skus.add(sku)
+                    manufacturer_products.append(product)
+            
+            logger.info(f"  Page 1/{max_page}: found {len(products)} products")
+            
+        except KeyError as e:
+            logger.error(f"Missing data in response: {e}")
+            return []
+        
+        # Парсимо решту сторінок (якщо є)
+        for page in range(2, max_page + 1):
+            params["p"] = page
+            
+            data = self._safe_request(url, params, headers)
+            if not data:
+                logger.warning(f"Failed to load page {page}, skipping...")
+                continue
+            
+            try:
+                products_data = data["data"]["content"]["products"]
+                products = self._extract_products(products_data, manufacturer_name)
+                
+                # Додати тільки унікальні SKU
+                new_count = 0
+                for product in products:
+                    sku = product["sku"]
+                    if sku not in seen_skus:
+                        seen_skus.add(sku)
+                        manufacturer_products.append(product)
+                        new_count += 1
+                
+                logger.info(f"  Page {page}/{max_page}: found {new_count} new products (total: {len(manufacturer_products)})")
+                
+            except KeyError as e:
+                logger.error(f"Missing data on page {page}: {e}")
+                continue
+            
+            # Затримка між сторінками
+            if page < max_page:
+                self._random_delay()
+        
+        logger.info(f"Manufacturer {manufacturer_name}: collected {len(manufacturer_products)} unique products")
+        self.stats['manufacturers_processed'] += 1
+        
+        return manufacturer_products
+    
     def scrape_all_products(self) -> List[Dict[str, str]]:
+        """Парсить всі товари з 3 виробників"""
         logger.info("="*60)
         logger.info("Starting Coleman Furniture scraping")
-        logger.info(f"Categories: {len(self.category_ids)}")
+        logger.info(f"Manufacturers: {list(self.MANUFACTURERS.keys())}")
         logger.info("="*60)
-        
-        if not self.category_ids:
-            logger.error("No categories loaded!")
-            return []
         
         all_products = []
         seen_skus = set()
-        start_time = datetime.now()
-        last_progress_count = 0
         
-        for idx, (category_name, category_id) in enumerate(self.category_ids.items(), 1):
-            logger.info(f"\n{'='*60}")
-            logger.info(f"📂 [{idx}/{len(self.category_ids)}] {category_name}")
-            logger.info(f"{'='*60}")
+        for manufacturer_name, manufacturer_id in self.MANUFACTURERS.items():
+            logger.info(f"\nProcessing: {manufacturer_name}")
             
-            products = self.scrape_category(category_id, category_name, seen_skus)
+            products = self.scrape_manufacturer(manufacturer_name, manufacturer_id, seen_skus)
             all_products.extend(products)
             
             self.stats['total_products'] = len(all_products)
             self.stats['unique_products'] = len(seen_skus)
             
-            # 🆕 ПРОГРЕС кожні 1000 товарів (або після кожної категорії)
-            if len(all_products) - last_progress_count >= 1000 or idx % 5 == 0:
-                elapsed = (datetime.now() - start_time).total_seconds() / 60
-                speed = len(all_products) / elapsed if elapsed > 0 else 0
-                
-                # Оцінка скільки ще категорій
-                categories_left = len(self.category_ids) - idx
-                avg_per_category = len(all_products) / idx if idx > 0 else 0
-                estimated_remaining = categories_left * avg_per_category
-                eta = estimated_remaining / speed if speed > 0 else 0
-                
-                logger.info(f"\n{'🔥'*30}")
-                logger.info(f"📊 COLEMAN PROGRESS")
-                logger.info(f"{'🔥'*30}")
-                logger.info(f"Categories: {idx}/{len(self.category_ids)} ({idx/len(self.category_ids)*100:.1f}%)")
-                logger.info(f"Products: {len(all_products):,} ({len(seen_skus):,} unique)")
-                logger.info(f"Speed: {speed:.1f} products/min")
-                logger.info(f"Elapsed: {elapsed:.1f} min ({elapsed/60:.1f} hours)")
-                logger.info(f"ETA: {eta:.1f} min (~{eta/60:.1f} hours)")
-                logger.info(f"Errors: {self.stats['errors']}")
-                logger.info(f"{'🔥'*30}\n")
-                
-                last_progress_count = len(all_products)
-            
-            # Затримка між категоріями
-            time.sleep(1)
+            # Затримка між виробниками
+            time.sleep(2)
         
         logger.info("="*60)
         logger.info(f"Completed: {len(all_products)} products from {len(seen_skus)} unique SKUs")
-        logger.info(f"Categories processed: {self.stats['categories_processed']}")
+        logger.info(f"Manufacturers processed: {self.stats['manufacturers_processed']}")
         logger.info(f"Errors: {self.stats['errors']}")
         logger.info("="*60)
         
         return all_products
-
-    def remove_duplicates(self, products: List[dict]) -> List[dict]:
-        """Видаляє дублікати по SKU"""
-        seen_skus = set()
-        unique_products = []
-        duplicates_count = 0
-        
-        for product in products:
-            sku = product.get("sku")
-            if sku and sku not in seen_skus:
-                seen_skus.add(sku)
-                unique_products.append(product)
-            elif sku:
-                duplicates_count += 1
-        
-        logger.info(f"Removed {duplicates_count} duplicates")
-        return unique_products
     
     def get_stats(self) -> dict:
         """Повертає статистику"""
@@ -264,7 +243,11 @@ def scrape_coleman(config: dict) -> List[Dict[str, str]]:
 if __name__ == "__main__":
     # Тестування
     import logging
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)-8s | %(message)s',
+        datefmt='%H:%M:%S'
+    )
     
     test_config = {
         'delay_min': 0.5,
@@ -274,7 +257,7 @@ if __name__ == "__main__":
     }
     
     print("\n" + "="*60)
-    print("ТЕСТ COLEMAN FURNITURE SCRAPER")
+    print("ТЕСТ COLEMAN FURNITURE SCRAPER (3 MANUFACTURERS)")
     print("="*60 + "\n")
     
     results = scrape_coleman(test_config)
@@ -284,10 +267,19 @@ if __name__ == "__main__":
     print("="*60)
     
     if results:
+        # Показати статистику по виробниках
+        manufacturers = {}
+        for product in results:
+            mfr = product['manufacturer']
+            manufacturers[mfr] = manufacturers.get(mfr, 0) + 1
+        
+        print("\nПо виробниках:")
+        for mfr, count in manufacturers.items():
+            print(f"  {mfr}: {count} товарів")
+        
         print("\nПерші 5 товарів:")
         for i, product in enumerate(results[:5], 1):
             print(f"\n{i}. SKU: {product['sku']}")
             print(f"   Manufacturer: {product['manufacturer']}")
             print(f"   Price: ${product['price']}")
-            print(f"   Category: {product['category_name']}")
             print(f"   URL: {product['url'][:60]}...")
