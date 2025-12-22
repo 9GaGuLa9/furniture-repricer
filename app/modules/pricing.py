@@ -117,31 +117,24 @@ class BatchPricingProcessor:
         self.engine = engine
     
     def _safe_float(self, value, field_name: str = "value") -> float:
-        """
-        Безпечна конвертація в float
-        Обробка: коми як десяткового роздільника, None, порожніх строк
-        """
-        if value is None or value == '':
+        '''Проста конвертація - всі значення з Sheets вже float!'''
+        if value is None:
             return 0.0
         
-        try:
-            # Якщо вже float/int
-            if isinstance(value, (float, int)):
-                return float(value)
-            
-            # Якщо string - обробити кому як десятковий роздільник
-            if isinstance(value, str):
-                # "507,66" → "507.66"
-                value_cleaned = value.strip().replace(',', '.')
-                return float(value_cleaned)
-            
-            # Інший тип
-            return float(value)
-            
-        except (ValueError, TypeError) as e:
-            logger.warning(f"Failed to convert {field_name}='{value}' to float: {e}")
-            return 0.0
-    
+        if isinstance(value, (int, float)):
+            return float(value)  # Вже число - просто повернути
+        
+        # Якщо чомусь string (з scrapers)
+        if isinstance(value, str):
+            cleaned = value.strip().replace(',', '.').replace(' ', '')
+            try:
+                return float(cleaned) if cleaned else 0.0
+            except:
+                logger.warning(f"Cannot convert {field_name}='{value}'")
+                return 0.0
+        
+        return 0.0
+
     def process_products(self, products: List[Dict]) -> List[Dict]:
         """
         Обробити список товарів

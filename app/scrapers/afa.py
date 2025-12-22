@@ -34,6 +34,7 @@ class AFAScraper:
         "Steve Silver",
         "Martin Furniture", 
         "Legacy Classic Furniture",
+        "Legacy Classic Kids",
         "ACME Furniture",
         "Intercon Furniture",
         "Westwood Design",

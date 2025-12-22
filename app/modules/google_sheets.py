@@ -377,11 +377,96 @@ class RepricerSheetsManager:
         # Cache для row numbers (оптимізація rate limit)
         self.row_cache = {}
     
-    def get_main_data(self) -> List[Dict[str, str]]:
-        """Отримати дані з основної таблиці"""
+    def get_main_data(self) -> List[Dict[str, Any]]:
+        """
+        Отримати дані з основної таблиці
+        
+        ✅ FIXED v4.0:
+        - Конвертує числові поля в float ОДРАЗУ
+        - Більше ніяких проблем з комою!
+        - Всі ціни вже правильні float після цього методу
+        """
         sheet_id = self.config['main_sheet']['id']
         sheet_name = self.config['main_sheet']['name']
-        return self.client.read_as_dict(sheet_id, sheet_name)
+        
+        self.logger.info("Loading data from Google Sheets...")
+        
+        # Прочитати сирі дані
+        raw_data = self.client.read_all_data(sheet_id, sheet_name)
+        
+        if not raw_data or len(raw_data) < 2:
+            self.logger.warning("No data in main sheet")
+            return []
+        
+        # Перший рядок - заголовки (пропускаємо)
+        headers = raw_data[0]
+        self.logger.debug(f"Headers: {headers[:12]}")  # Показати перші 12 колонок
+        
+        products = []
+        conversion_errors = 0
+        
+        for idx, row in enumerate(raw_data[1:], start=2):  # Починаємо з рядка 2
+            if not row or not row[0]:  # Пропустити порожні рядки
+                continue
+            
+            try:
+                # ✅ КЛЮЧОВИЙ МОМЕНТ: Конвертувати числа в float ОДРАЗУ!
+                product = {
+                    # String поля
+                    'sku': str(row[0]).strip() if len(row) > 0 else '',
+                    'brand': str(row[1]).strip() if len(row) > 1 else '',
+                    
+                    # ✅ ЧИСЛОВІ ПОЛЯ - конвертувати в float з обробкою коми!
+                    'Our Cost': self._to_float(row[2] if len(row) > 2 else None),
+                    'Our Sales Price': self._to_float(row[3] if len(row) > 3 else None),
+                    'Suggest Sales Price': self._to_float(row[4] if len(row) > 4 else None),
+                    
+                    # URL
+                    'our_url': str(row[5]).strip() if len(row) > 5 else '',
+                    
+                    # Competitor 1
+                    'site1_price': self._to_float(row[6] if len(row) > 6 else None),
+                    'site1_url': str(row[7]).strip() if len(row) > 7 else '',
+                    
+                    # Competitor 2
+                    'site2_price': self._to_float(row[8] if len(row) > 8 else None),
+                    'site2_url': str(row[9]).strip() if len(row) > 9 else '',
+                    
+                    # Competitor 3
+                    'site3_price': self._to_float(row[10] if len(row) > 10 else None),
+                    'site3_url': str(row[11]).strip() if len(row) > 11 else '',
+                    
+                    # Metadata
+                    'row_number': idx,  # Зберегти номер рядка для оновлення
+                }
+                
+                products.append(product)
+                
+            except Exception as e:
+                self.logger.error(f"Failed to parse row {idx}: {e}")
+                conversion_errors += 1
+                continue
+        
+        self.logger.info(f"✓ Loaded {len(products)} products from Google Sheets")
+        
+        if conversion_errors > 0:
+            self.logger.warning(f"⚠️ Had {conversion_errors} conversion errors")
+        
+        # ✅ ДІАГНОСТИКА: Показати приклад що все правильно
+        if products:
+            sample = products[0]
+            self.logger.info("Sample product (after conversion):")
+            self.logger.info(f"  SKU: {sample['sku']}")
+            self.logger.info(f"  Our Cost: {sample['Our Cost']:.2f} (type: {type(sample['Our Cost']).__name__})")
+            self.logger.info(f"  Our Sales Price: {sample['Our Sales Price']:.2f} (type: {type(sample['Our Sales Price']).__name__})")
+            
+            # Перевірка що всі ціни float
+            if not isinstance(sample['Our Cost'], float):
+                self.logger.error("❌ Our Cost is NOT float! Still has conversion problem!")
+            else:
+                self.logger.info("✓ All prices are proper float types")
+        
+        return products
     
     def update_product_prices(self, sku: str, prices: Dict[str, Any]) -> bool:
         """
@@ -538,7 +623,11 @@ class RepricerSheetsManager:
         """
         Батчити всі оновлення разом (НАБАГАТО ШВИДШЕ!)
         
-        ВИПРАВЛЕННЯ: Прибрано {sheet_name}! з усіх ranges
+        ✅ FIXED v2.0:
+        - Підтримка дублюючих SKU (зберігаємо LIST рядків)
+        - Підтримка integer SKU (конвертуємо в string)
+        - Детальне логування дублікатів
+        - Оновлення всіх рядків з однаковим SKU
         """
         self.logger.info(f"Batch updating {len(products)} products...")
         
@@ -553,63 +642,96 @@ class RepricerSheetsManager:
             worksheet = self.client.open_sheet(sheet_id, sheet_name)
             all_data = worksheet.get_all_values()
             
+            # ✅ FIXED: Підтримка дублюючих SKU - зберігаємо LIST рядків
+            from collections import defaultdict
+            self.row_cache = defaultdict(list)  # SKU -> [row_num1, row_num2, ...]
+            
             # Знайти колонку SKU (припускаємо A)
             for idx, row in enumerate(all_data, start=1):
                 if row and row[0]:  # SKU в колонці A
-                    self.row_cache[row[0]] = idx
+                    # ✅ FIXED: конвертуємо в string + strip для integer SKU
+                    sku_str = str(row[0]).strip()
+                    self.row_cache[sku_str].append(idx)
             
-            self.logger.info(f"Cached {len(self.row_cache)} SKU row numbers")
+            total_rows = sum(len(rows) for rows in self.row_cache.values())
+            unique_skus = len(self.row_cache)
+            
+            self.logger.info(f"Cached {unique_skus} unique SKUs ({total_rows} total rows)")
+            
+            # Показати приклади дублікатів
+            duplicates = {sku: rows for sku, rows in self.row_cache.items() if len(rows) > 1}
+            if duplicates:
+                self.logger.warning(f"Found {len(duplicates)} SKUs with duplicates:")
+                for sku, rows in list(duplicates.items())[:5]:  # Показати перші 5
+                    self.logger.warning(f"  SKU '{sku}' appears in rows: {rows}")
         
         # Підготувати всі оновлення
         all_updates = []
         updated_count = 0
+        skipped_count = 0
         
         for product in products:
+            # ✅ FIXED: конвертувати SKU в string для співставлення
             sku = product.get('sku') or product.get('SKU')
-            if not sku or sku not in self.row_cache:
+            if not sku:
+                skipped_count += 1
                 continue
             
-            row_num = self.row_cache[sku]
+            sku_str = str(sku).strip()  # ✅ Конвертувати в string
+            
+            if sku_str not in self.row_cache:
+                self.logger.debug(f"SKU '{sku_str}' not found in cache")
+                skipped_count += 1
+                continue
+            
+            # ✅ FIXED: Оновити ВСІ рядки з цим SKU (включно дублікати)
+            row_numbers = self.row_cache[sku_str]
+            
             prices = product.get('_prices_to_update', {})
             
             if not prices:
+                skipped_count += 1
                 continue
             
-            if 'suggest_price' in prices:
+            # Додати updates для КОЖНОГО рядка з цим SKU
+            for row_num in row_numbers:
+                if 'suggest_price' in prices:
+                    all_updates.append({
+                        'range': f'E{row_num}',
+                        'values': [[prices['suggest_price']]]
+                    })
+                
+                if 'site1_price' in prices:
+                    all_updates.append({
+                        'range': f'G{row_num}:H{row_num}',
+                        'values': [[prices.get('site1_price'), prices.get('site1_url', '')]]
+                    })
+                
+                if 'site2_price' in prices:
+                    all_updates.append({
+                        'range': f'I{row_num}:J{row_num}',
+                        'values': [[prices.get('site2_price'), prices.get('site2_url', '')]]
+                    })
+                
+                if 'site3_price' in prices:
+                    all_updates.append({
+                        'range': f'K{row_num}:L{row_num}',
+                        'values': [[prices.get('site3_price'), prices.get('site3_url', '')]]
+                    })
+                
+                # Last update (колонка Q)
                 all_updates.append({
-                    'range': f'E{row_num}',
-                    'values': [[prices['suggest_price']]]
+                    'range': f'Q{row_num}',
+                    'values': [[datetime.now().strftime('%Y-%m-%d %H:%M:%S')]]
                 })
-            
-            if 'site1_price' in prices:
-                all_updates.append({
-                    'range': f'G{row_num}:H{row_num}',
-                    'values': [[prices.get('site1_price'), prices.get('site1_url', '')]]
-                })
-            
-            if 'site2_price' in prices:
-                all_updates.append({
-                    'range': f'I{row_num}:J{row_num}',
-                    'values': [[prices.get('site2_price'), prices.get('site2_url', '')]]
-                })
-            
-            if 'site3_price' in prices:
-                all_updates.append({
-                    'range': f'K{row_num}:L{row_num}',
-                    'values': [[prices.get('site3_price'), prices.get('site3_url', '')]]
-                })
-            
-            # Last update (колонка Q)
-            all_updates.append({
-                'range': f'Q{row_num}',
-                'values': [[datetime.now().strftime('%Y-%m-%d %H:%M:%S')]]
-            })
             
             updated_count += 1
         
         # Виконати ОДИН batch update для всіх товарів
         if all_updates:
-            self.logger.info(f"Executing batch update with {len(all_updates)} changes...")
+            self.logger.info(f"Executing batch update: {len(all_updates)} changes for {updated_count} products")
+            if skipped_count > 0:
+                self.logger.info(f"Skipped: {skipped_count} products (no SKU or no prices)")
             time.sleep(0.5)
             
             # Google Sheets API дозволяє до 1000 updates за раз
@@ -617,15 +739,74 @@ class RepricerSheetsManager:
             chunk_size = 500
             for i in range(0, len(all_updates), chunk_size):
                 chunk = all_updates[i:i+chunk_size]
-                self.client.batch_update(sheet_id, chunk, sheet_name)  # ✅ Передаємо sheet_name тут
+                self.client.batch_update(sheet_id, chunk, sheet_name)
+                
+                self.logger.info(f"  Updated chunk {i//chunk_size + 1}/{(len(all_updates)-1)//chunk_size + 1}")
                 
                 if i + chunk_size < len(all_updates):
                     time.sleep(1.0)  # Затримка між chunks
             
             self.logger.info(f"✓ Batch update completed: {updated_count} products")
+        else:
+            self.logger.warning("No updates to perform!")
         
         return updated_count
 
+    def _to_float(self, value, default: float = 0.0) -> float:
+        """
+        Конвертувати значення в float з обробкою різних форматів
+        
+        ✅ ПРАВИЛЬНЕ РІШЕННЯ замість костилів!
+        
+        Підтримка:
+        - "507.66" (крапка)
+        - "507,66" (кома - європейський формат) ✅
+        - "507 66" (пробіл)
+        - 507.66 (вже float)
+        - 507 (int)
+        - "" або None (повертає default)
+        """
+        if value is None or value == '':
+            return default
+        
+        # Якщо вже число
+        if isinstance(value, (int, float)):
+            return float(value)
+        
+        # Якщо string
+        if isinstance(value, str):
+            try:
+                # Прибрати пробіли
+                cleaned = value.strip()
+                
+                if not cleaned:
+                    return default
+                
+                # ✅ КЛЮЧОВИЙ МОМЕНТ: Замінити кому на крапку
+                cleaned = cleaned.replace(',', '.')
+                
+                # Прибрати пробіли всередині (для "1 000.50")
+                cleaned = cleaned.replace(' ', '')
+                
+                # Конвертувати
+                result = float(cleaned)
+                
+                self.logger.debug(f"Converted '{value}' → {result:.2f}")
+                
+                return result
+                
+            except (ValueError, TypeError) as e:
+                self.logger.warning(
+                    f"Failed to convert '{value}' to float: {e}. Using default: {default}"
+                )
+                return default
+        
+        # Інший тип - спробувати
+        try:
+            return float(value)
+        except:
+            self.logger.warning(f"Cannot convert {type(value)} '{value}' to float")
+            return default
 
 if __name__ == "__main__":
     # Тестування
