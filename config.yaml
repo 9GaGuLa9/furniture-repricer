@@ -27,20 +27,18 @@ scrapers:
     retry_attempts: 3
     timeout: 20
   
-  # Coleman - Manufacturer API (3 виробників)
-  # Martin Furniture, Steve Silver, Legacy Classic
+  # Coleman - Manufacturer API
   coleman:
     enabled: true
-    delay_min: 0.5           # Швидше - manufacturer endpoint
+    delay_min: 0.5
     delay_max: 1.5
     retry_attempts: 3
     timeout: 20
   
-  # AFA - Shopify API + Vendor Filtering (3 виробників)
-  # Steve Silver, Martin Furniture, Legacy Classic Furniture
+  # AFA - Shopify API + Vendor Filtering
   afa:
-    enabled: true            # ← УВІМКНУТИ!
-    delay_min: 1.0           # Швидше - Shopify API
+    enabled: true           
+    delay_min: 1.0
     delay_max: 2.0
     retry_attempts: 3
     timeout: 30
@@ -52,11 +50,13 @@ pricing:
     below_lowest: 1.0       # Suggest = Lowest - $1
     max: 2.0                # Максимум = Cost × 2.0
 
-# SKU matching - ТІЛЬКИ ТОЧНИЙ ЗБІГ
+# SKU matching - "exact" ТІЛЬКИ ТОЧНИЙ ЗБІГ; "fuzzy" м`яке порівняння
 sku_matching:
   split_delimiter: ";"
   case_sensitive: false
   strategy: "exact"         # Без brand fallback
+  # strategy: "fuzzy"  # Замість "exact"
+  # fuzzy_threshold: 0.85
 
 # Telegram (опціонально)
 telegram:

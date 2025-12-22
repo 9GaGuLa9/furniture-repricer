@@ -1,6 +1,7 @@
 """
-1StopBedrooms Scraper
-Парсить ціни з 1stopbedrooms.com через GraphQL API
+1StopBedrooms Scraper - BRAND-BASED VERSION (OPTIMIZED!)
+Парсить ціни з 1stopbedrooms.com через GraphQL API по конкретних виробниках
+НАБАГАТО ШВИДШЕ ніж по категоріях - ~5-10 хвилин замість 30-40!
 """
 
 import requests
@@ -13,15 +14,18 @@ logger = logging.getLogger("onestopbedrooms")
 
 
 class OneStopBedroomsScraper:
-    """Scraper для 1stopbedrooms.com"""
+    """Scraper для 1stopbedrooms.com - збирає по виробниках"""
     
     BASE_URL = "https://www.1stopbedrooms.com"
     GRAPHQL_URL = "https://www.1stopbedrooms.com/graphql/1"
     
-    CATEGORIES = [
-        "bedroom", "living", "dining", "office",
-        "bar-furniture", "decor", "outdoor",
-        "mattresses", "lighting"
+    # ✅ Цільові виробники (ті самі що в Coleman і AFA)
+    BRANDS = [
+        {"name": "Steve Silver", "slug": "brand/steve-silver"},
+        {"name": "Martin Furniture", "slug": "brand/martin-furniture"},
+        {"name": "Legacy Classic", "slug": "brand/legacy-classic"},
+        {"name": "Aspenhome", "slug": "brand/aspenhome"},
+        {"name": "ACME", "slug": "brand/acme"},
     ]
     
     GRAPHQL_QUERY = """
@@ -45,6 +49,7 @@ fragment fragmentCatalogProduct on catalogSearchProductInterface {
     webId
     name
     labels
+    outOfStock
     brand { id name }
     cat_names
     collection
@@ -55,14 +60,14 @@ fragment fragmentCatalogProduct on catalogSearchProductInterface {
     shippingType
     price { finalPrice msrp showMsrp getExcludePromo getSale }
     tags {
-    allTags
-    primaryDealTag
-    primaryDealTagVisibility
-    secondaryTag
-    secondaryTagVisibility
-    tertiaryTag
-    tertiaryTagVisibility
-    __typename
+        allTags
+        primaryDealTag
+        primaryDealTagVisibility
+        secondaryTag
+        secondaryTagVisibility
+        tertiaryTag
+        tertiaryTagVisibility
+        __typename
     }
     couponData { discount code }
     images { mainImage { ...fragmentImage } }
@@ -77,15 +82,35 @@ fragment fragmentCatalogProduct on catalogSearchProductInterface {
 query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcode: String) {
     listing {
         listingCategory(slug: $slug, request: $request, zipcode: $zipcode) {
-        itemsCount
-        perPage
-        pages
-        page
-        header: title
-        items {
-            ...fragmentCatalogProduct
-            ... on catalogSearchProductDynamicItem { items { ...fragmentCatalogProduct } }
+            itemsCount
+            perPage
+            pages
+            page
+            header: title
+            items {
+                ...fragmentCatalogProduct
+                ... on catalogSearchProductDynamicItem { items { ...fragmentCatalogProduct } }
+            }
         }
+        topSellerProducts(categorySlug: $slug) {
+            webId
+            title
+            brand { name }
+            url
+            slug
+            labels
+            outOfStock
+            price { price regularPrice finalPrice msrp showMsrp }
+            reviews { number rating }
+            images {
+                mainImage {
+                    style
+                    alt
+                    src
+                    sources { media srcset }
+                    classes
+                }
+            }
         }
     }
 }
@@ -102,10 +127,10 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
             'total_products': 0,
             'unique_products': 0,
             'errors': 0,
-            'categories_processed': 0
+            'brands_processed': 0
         }
         
-        logger.info("1StopBedrooms scraper initialized")
+        logger.info("1StopBedrooms scraper initialized (brand-based - FAST!)")
     
     def _random_delay(self):
         """Затримка між запитами"""
@@ -133,7 +158,7 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
         return None
     
     def _extract_products(self, items: List[dict], seen_skus: set) -> List[Dict[str, str]]:
-        """Витягує товари зі списку items (Simple, Bundle, Dynamic)"""
+        """Витягує товари зі списку items"""
         products = []
         
         for item in items:
@@ -147,7 +172,7 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
             elif typename == "catalogSearchProductBundleItem":
                 sub_items = [item]
             else:
-                logger.warning(f"Unknown product type: {typename}")
+                logger.debug(f"Unknown product type: {typename}")
                 sub_items = []
             
             # Обробляємо кожен під-товар
@@ -174,18 +199,21 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
         
         return products
     
-    def scrape_category(self, category: str, seen_skus: set) -> List[Dict[str, str]]:
-        """Парсить всі товари з категорії"""
-        logger.info(f"Processing category: {category}")
+    def scrape_brand(self, brand_info: dict, seen_skus: set) -> List[Dict[str, str]]:
+        """Парсить всі товари одного виробника"""
+        brand_name = brand_info["name"]
+        brand_slug = brand_info["slug"]
         
-        category_products = []
+        logger.info(f"Processing brand: {brand_name} ({brand_slug})")
+        
+        brand_products = []
         page = 1
         
         headers = {
             "Content-Type": "application/json",
             "Accept": "*/*",
             "Origin": self.BASE_URL,
-            "Referer": f"{self.BASE_URL}/{category}",
+            "Referer": f"{self.BASE_URL}/{brand_slug}",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
         
@@ -194,42 +222,55 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
             "operationName": "getListingData",
             "query": self.GRAPHQL_QUERY,
             "variables": {
-                "slug": category,
+                "slug": brand_slug,
                 "request": {
                     "sortBy": "RELEVANCE",
                     "perPage": "PER_PAGE_48",
                     "page": 1,
                     "facet": []
                 },
-                "zipcode": None
+                "zipcode": "11229"  # Можна залишити або змінити
             }
         }
         
         data = self._safe_request(payload, headers)
         if not data or "data" not in data:
-            logger.error(f"Failed to get data for category {category}")
+            logger.error(f"Failed to get data for brand {brand_name}")
             return []
         
-        listing = data["data"]["listing"]["listingCategory"]
-        max_page = listing["pages"]
-        items_count = listing["itemsCount"]
+        try:
+            listing = data["data"]["listing"]["listingCategory"]
+            max_page = listing["pages"]
+            items_count = listing["itemsCount"]
+            
+            logger.info(f"Brand {brand_name}: {items_count} items, {max_page} pages")
+            
+            # Витягти товари з першої сторінки
+            items = listing.get("items", [])
+            products = self._extract_products(items, seen_skus)
+            brand_products.extend(products)
+            
+            logger.info(f"  Page 1/{max_page}: found {len(products)} new products (total: {len(brand_products)})")
+            
+        except KeyError as e:
+            logger.error(f"Missing data in response: {e}")
+            return []
         
-        logger.info(f"Category {category}: {items_count} items, {max_page} pages")
-        
-        # Парсимо всі сторінки
-        for page in range(1, max_page + 1):
+        # Парсимо решту сторінок
+        for page in range(2, max_page + 1):
             payload["variables"]["request"]["page"] = page
             
             data = self._safe_request(payload, headers)
             if not data:
+                logger.warning(f"Failed to load page {page}, skipping...")
                 continue
             
             try:
                 items = data["data"]["listing"]["listingCategory"]["items"]
                 products = self._extract_products(items, seen_skus)
-                category_products.extend(products)
+                brand_products.extend(products)
                 
-                logger.info(f"  Page {page}/{max_page}: found {len(products)} new products")
+                logger.info(f"  Page {page}/{max_page}: found {len(products)} new products (total: {len(brand_products)})")
                 
             except KeyError as e:
                 logger.error(f"Missing data on page {page}: {e}")
@@ -239,57 +280,58 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
             if page < max_page:
                 self._random_delay()
         
-        logger.info(f"Category {category}: collected {len(category_products)} products")
-        print(f"Category {category}: collected {len(category_products)} products")
-        self.stats['categories_processed'] += 1
+        logger.info(f"Brand {brand_name}: collected {len(brand_products)} unique products")
+        self.stats['brands_processed'] += 1
         
-        return category_products
+        return brand_products
     
     def scrape_all_products(self) -> List[Dict[str, str]]:
+        """Парсить всі товари від цільових виробників"""
         logger.info("="*60)
-        logger.info("Starting 1StopBedrooms scraping")
-        logger.info(f"Categories: {len(self.CATEGORIES)}")
+        logger.info("Starting 1StopBedrooms scraping (brand-based)")
+        logger.info(f"Target brands: {[b['name'] for b in self.BRANDS]}")
         logger.info("="*60)
         
         all_products = []
         seen_skus = set()
         start_time = datetime.now()
         
-        for idx, category in enumerate(self.CATEGORIES, 1):
+        for idx, brand_info in enumerate(self.BRANDS, 1):
             logger.info(f"\n{'='*60}")
-            logger.info(f"📂 CATEGORY {idx}/{len(self.CATEGORIES)}: {category}")
+            logger.info(f"📂 BRAND {idx}/{len(self.BRANDS)}: {brand_info['name']}")
             logger.info(f"{'='*60}")
             
-            products = self.scrape_category(category, seen_skus)
+            products = self.scrape_brand(brand_info, seen_skus)
             all_products.extend(products)
             
-            # 🆕 ЗАГАЛЬНИЙ ПРОГРЕС після кожної категорії
+            # Загальний прогрес після кожного виробника
             elapsed = (datetime.now() - start_time).total_seconds() / 60
             speed = len(all_products) / elapsed if elapsed > 0 else 0
-            categories_left = len(self.CATEGORIES) - idx
-            eta = (categories_left * elapsed / idx) if idx > 0 else 0
+            brands_left = len(self.BRANDS) - idx
+            eta = (brands_left * elapsed / idx) if idx > 0 else 0
             
             logger.info(f"\n{'='*60}")
             logger.info(f"📊 OVERALL PROGRESS")
             logger.info(f"{'='*60}")
-            logger.info(f"Categories: {idx}/{len(self.CATEGORIES)} ({idx/len(self.CATEGORIES)*100:.1f}%)")
+            logger.info(f"Brands: {idx}/{len(self.BRANDS)} ({idx/len(self.BRANDS)*100:.1f}%)")
             logger.info(f"Total products: {len(all_products)} ({len(seen_skus)} unique)")
             logger.info(f"Speed: {speed:.1f} products/min")
             logger.info(f"Elapsed: {elapsed:.1f} min")
-            logger.info(f"ETA: {eta:.1f} min (~{eta/60:.1f} hours)")
+            logger.info(f"ETA: {eta:.1f} min")
             logger.info(f"Errors: {self.stats['errors']}")
             logger.info(f"{'='*60}\n")
             
             self.stats['total_products'] = len(all_products)
             self.stats['unique_products'] = len(seen_skus)
             
-            # Затримка між категоріями
+            # Затримка між виробниками
             time.sleep(2)
         
         logger.info("="*60)
-        logger.info(f"Completed: {len(all_products)} products from {len(seen_skus)} unique SKUs")
-        logger.info(f"Categories processed: {self.stats['categories_processed']}")
+        logger.info(f"✅ COMPLETED: {len(all_products)} products from {len(seen_skus)} unique SKUs")
+        logger.info(f"Brands processed: {self.stats['brands_processed']}")
         logger.info(f"Errors: {self.stats['errors']}")
+        logger.info(f"Total time: {(datetime.now() - start_time).total_seconds() / 60:.1f} minutes")
         logger.info("="*60)
         
         return all_products
@@ -309,7 +351,11 @@ def scrape_onestopbedrooms(config: dict) -> List[Dict[str, str]]:
 if __name__ == "__main__":
     # Тестування
     import logging
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)-8s | %(message)s',
+        datefmt='%H:%M:%S'
+    )
     
     test_config = {
         'delay_min': 1.0,
@@ -319,7 +365,7 @@ if __name__ == "__main__":
     }
     
     print("\n" + "="*60)
-    print("ТЕСТ 1STOPBEDROOMS SCRAPER")
+    print("ТЕСТ 1STOPBEDROOMS SCRAPER (BRAND-BASED - FAST!)")
     print("="*60 + "\n")
     
     results = scrape_onestopbedrooms(test_config)
@@ -329,9 +375,24 @@ if __name__ == "__main__":
     print("="*60)
     
     if results:
+        # Показати статистику по виробниках
+        brands = {}
+        for product in results:
+            brand = product['brand']
+            if brand:
+                brands[brand] = brands.get(brand, 0) + 1
+        
+        print("\nПо виробниках:")
+        for brand, count in sorted(brands.items()):
+            print(f"  {brand}: {count} товарів")
+        
         print("\nПерші 5 товарів:")
         for i, product in enumerate(results[:5], 1):
             print(f"\n{i}. SKU: {product['sku']}")
             print(f"   Brand: {product['brand']}")
             print(f"   Price: ${product['price']}")
             print(f"   URL: {product['url'][:60]}...")
+    else:
+        print("\n❌ Немає результатів")
+    
+    print("\n" + "="*60)

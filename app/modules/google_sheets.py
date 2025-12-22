@@ -141,7 +141,7 @@ class GoogleSheetsClient:
             raise
     
     def write_row(self, sheet_id: str, row_number: int, values: List[Any], 
-                  worksheet_name: str = None):
+                    worksheet_name: str = None):
         """
         Записати рядок у таблицю
         
@@ -188,7 +188,7 @@ class GoogleSheetsClient:
             raise
     
     def update_range(self, sheet_id: str, range_name: str, values: List[List[Any]],
-                     worksheet_name: str = None):
+                    worksheet_name: str = None):
         """
         Оновити діапазон клітинок
         
@@ -287,7 +287,7 @@ class GoogleSheetsClient:
             return None
     
     def get_row_by_number(self, sheet_id: str, row_number: int, 
-                         worksheet_name: str = None) -> List[str]:
+                        worksheet_name: str = None) -> List[str]:
         """
         Отримати рядок за номером
         
@@ -575,36 +575,33 @@ class RepricerSheetsManager:
             if not prices:
                 continue
             
-            # ✅ ВИПРАВЛЕНО: Прибрано {sheet_name}! з ranges
-            # Worksheet вже знає свою назву, не треба дублювати
-            
             if 'suggest_price' in prices:
                 all_updates.append({
-                    'range': f'E{row_num}',  # ✅ Було: f'{sheet_name}!E{row_num}'
+                    'range': f'E{row_num}',
                     'values': [[prices['suggest_price']]]
                 })
             
             if 'site1_price' in prices:
                 all_updates.append({
-                    'range': f'G{row_num}:H{row_num}',  # ✅ Було: f'{sheet_name}!G{row_num}:H{row_num}'
+                    'range': f'G{row_num}:H{row_num}',
                     'values': [[prices.get('site1_price'), prices.get('site1_url', '')]]
                 })
             
             if 'site2_price' in prices:
                 all_updates.append({
-                    'range': f'I{row_num}:J{row_num}',  # ✅ Було: f'{sheet_name}!I{row_num}:J{row_num}'
+                    'range': f'I{row_num}:J{row_num}',
                     'values': [[prices.get('site2_price'), prices.get('site2_url', '')]]
                 })
             
             if 'site3_price' in prices:
                 all_updates.append({
-                    'range': f'K{row_num}:L{row_num}',  # ✅ Було: f'{sheet_name}!K{row_num}:L{row_num}'
+                    'range': f'K{row_num}:L{row_num}',
                     'values': [[prices.get('site3_price'), prices.get('site3_url', '')]]
                 })
             
             # Last update (колонка Q)
             all_updates.append({
-                'range': f'Q{row_num}',  # ✅ Було: f'{sheet_name}!Q{row_num}'
+                'range': f'Q{row_num}',
                 'values': [[datetime.now().strftime('%Y-%m-%d %H:%M:%S')]]
             })
             

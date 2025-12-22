@@ -9,34 +9,43 @@ from typing import List, Dict, Optional
 from datetime import datetime
 
 try:
-    import cloudscraper
-    CLOUDSCRAPER_AVAILABLE = True
+    from curl_cffi import requests as curl_requests
+    CURL_CFFI_AVAILABLE = True
 except ImportError:
-    CLOUDSCRAPER_AVAILABLE = False
-    import requests
-    logging.error("cloudscraper not installed! Install: pip install cloudscraper")
+    CURL_CFFI_AVAILABLE = False
+    try:
+        import cloudscraper
+        CLOUDSCRAPER_AVAILABLE = True
+    except ImportError:
+        CLOUDSCRAPER_AVAILABLE = False
+        import requests
+        logging.error("Neither curl_cffi nor cloudscraper installed! Install: pip install curl-cffi")
 
 logger = logging.getLogger("afa")
 
 
 class AFAScraper:
     """Scraper для afastores.com через Shopify collections з vendor filtering"""
-    
+
     BASE_URL = "https://www.afastores.com"
-    
+
     # Пріоритетні виробники
     PRIORITY_VENDORS = [
         "Steve Silver",
         "Martin Furniture", 
         "Legacy Classic Furniture",
+        "ACME Furniture",
+        "Intercon Furniture",
+        "Westwood Design",
     ]
-    
+
     def __init__(self, config: dict):
         self.config = config
         self.delay_min = config.get('delay_min', 2.0)
         self.delay_max = config.get('delay_max', 4.0)
         self.retry_attempts = config.get('retry_attempts', 3)
         self.timeout = config.get('timeout', 30)
+        self.proxies = config.get('proxies', None)  # {'http': 'http://proxy:port', 'https': 'http://proxy:port'}
         
         self.stats = {
             'total_products': 0,
@@ -44,30 +53,84 @@ class AFAScraper:
             'errors': 0,
             'vendors_processed': 0
         }
-        
-        # Створити cloudscraper session
-        if CLOUDSCRAPER_AVAILABLE:
+
+        # Initialize session with best available method
+        self.session_type = None
+        self.impersonate = None
+
+        if CURL_CFFI_AVAILABLE:
+            # curl_cffi - best TLS fingerprint, works most reliably
+            self.session_type = 'curl_cffi'
+            self.impersonate = 'chrome110'  # Verified working
+            self.scraper = None  # Will use curl_requests directly
+            logger.info(f"AFA Stores scraper initialized with curl_cffi (impersonate={self.impersonate})")
+
+        elif CLOUDSCRAPER_AVAILABLE:
+            # Fallback to cloudscraper
+            import cloudscraper
+            self.session_type = 'cloudscraper'
             self.scraper = cloudscraper.create_scraper(
                 browser={
                     'browser': 'chrome',
                     'platform': 'windows',
                     'mobile': False
                 },
-                delay=10  # Затримка перед першим запитом
+                delay=10
             )
+
+            self.scraper.headers.update({
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Referer': 'https://www.afastores.com/',
+                'Origin': 'https://www.afastores.com',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            })
+
             logger.info("AFA Stores scraper initialized with cloudscraper")
+            self._warm_up_session()
+
         else:
+            # Last resort - regular requests (will likely fail)
+            import requests
+            self.session_type = 'requests'
             self.scraper = requests.Session()
             self.scraper.headers.update({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             })
-            logger.warning("AFA Stores scraper initialized WITHOUT cloudscraper - may fail!")
-    
+            logger.warning("AFA Stores scraper initialized with basic requests - will likely fail!")
+
+    def _warm_up_session(self):
+        """Отримує початкові cookies, відвідуючи головну сторінку"""
+        # curl_cffi doesn't need warm-up - it handles TLS perfectly
+        if self.session_type == 'curl_cffi':
+            logger.debug("Skipping warm-up for curl_cffi (not needed)")
+            return
+
+        try:
+            logger.info("Warming up session by visiting homepage...")
+            response = self.scraper.get(
+                self.BASE_URL,
+                timeout=self.timeout,
+                proxies=self.proxies
+            )
+            response.raise_for_status()
+            logger.info(f"Session warmed up. Cookies: {len(self.scraper.cookies)} items")
+            time.sleep(2)  # Затримка після початкового візиту
+        except Exception as e:
+            logger.warning(f"Failed to warm up session: {e}")
+
     def _random_delay(self):
         """Затримка між запитами"""
         import random
         time.sleep(random.uniform(self.delay_min, self.delay_max))
-    
+
     def _fetch_products_json(self, vendor_name: str, page: int, limit: int = 250) -> Optional[dict]:
         """
         Отримує товари через Shopify JSON API
@@ -89,7 +152,24 @@ class AFAScraper:
 
         for attempt in range(self.retry_attempts):
             try:
-                response = self.scraper.get(url, params=params, timeout=self.timeout)
+                if self.session_type == 'curl_cffi':
+                    # Use curl_cffi for best TLS fingerprint
+                    response = curl_requests.get(
+                        url,
+                        params=params,
+                        timeout=self.timeout,
+                        impersonate=self.impersonate,
+                        proxies=self.proxies
+                    )
+                else:
+                    # Use cloudscraper or requests
+                    response = self.scraper.get(
+                        url,
+                        params=params,
+                        timeout=self.timeout,
+                        proxies=self.proxies
+                    )
+
                 response.raise_for_status()
                 return response.json()
 
@@ -212,12 +292,13 @@ class AFAScraper:
     def scrape_all_products(self) -> List[Dict[str, str]]:
         """Парсить всі товари від пріоритетних виробників"""
         logger.info("="*60)
-        logger.info("Starting AFA Stores scraping (cloudscraper + vendor collections)")
+        logger.info(f"Starting AFA Stores scraping (method: {self.session_type})")
         logger.info(f"Priority vendors: {self.PRIORITY_VENDORS}")
         logger.info("="*60)
-        
-        if not CLOUDSCRAPER_AVAILABLE:
-            logger.error("cloudscraper is required! Install: pip install cloudscraper")
+
+        if self.session_type == 'requests':
+            logger.error("Neither curl_cffi nor cloudscraper available!")
+            logger.error("Install curl_cffi: pip install curl-cffi")
             return []
         
         all_products = []
@@ -247,6 +328,74 @@ class AFAScraper:
         """Повертає статистику"""
         return self.stats.copy()
 
+    def test_connection(self) -> dict:
+        """Тестує з'єднання з сайтом для діагностики"""
+        results = {
+            'homepage': False,
+            'products_api': False,
+            'ip_blocked': False,
+            'cloudflare': False,
+            'session_type': self.session_type,
+            'details': []
+        }
+
+        # Тест 1: Доступ до головної сторінки
+        try:
+            logger.info("Testing homepage access...")
+
+            if self.session_type == 'curl_cffi':
+                resp = curl_requests.get(
+                    self.BASE_URL,
+                    timeout=self.timeout,
+                    impersonate=self.impersonate,
+                    proxies=self.proxies
+                )
+            else:
+                resp = self.scraper.get(self.BASE_URL, timeout=self.timeout, proxies=self.proxies)
+
+            results['homepage'] = resp.status_code == 200
+            results['details'].append(f"Homepage: {resp.status_code}")
+
+            if 'cloudflare' in resp.text.lower() or 'cf-ray' in resp.headers:
+                results['cloudflare'] = True
+                results['details'].append("Cloudflare detected")
+        except Exception as e:
+            results['details'].append(f"Homepage error: {e}")
+
+        # Тест 2: Products JSON API
+        try:
+            logger.info("Testing products API...")
+            test_url = f"{self.BASE_URL}/products.json"
+
+            if self.session_type == 'curl_cffi':
+                resp = curl_requests.get(
+                    test_url,
+                    params={'limit': 1},
+                    timeout=self.timeout,
+                    impersonate=self.impersonate,
+                    proxies=self.proxies
+                )
+            else:
+                resp = self.scraper.get(
+                    test_url,
+                    params={'limit': 1},
+                    timeout=self.timeout,
+                    proxies=self.proxies
+                )
+
+            results['products_api'] = resp.status_code == 200
+            results['details'].append(f"Products API: {resp.status_code}")
+
+            if resp.status_code == 403:
+                results['ip_blocked'] = True
+                results['details'].append("403 Forbidden - possible IP block")
+        except Exception as e:
+            results['details'].append(f"Products API error: {e}")
+            if '403' in str(e):
+                results['ip_blocked'] = True
+
+        return results
+
 
 def scrape_afa(config: dict) -> List[Dict[str, str]]:
     """Головна функція для парсингу AFA Stores"""
@@ -263,12 +412,18 @@ if __name__ == "__main__":
         format='%(asctime)s | %(levelname)-8s | %(message)s',
         datefmt='%H:%M:%S'
     )
-    
-    if not CLOUDSCRAPER_AVAILABLE:
-        print("\n⚠️  ERROR: cloudscraper not installed!")
-        print("Install it with: pip install cloudscraper")
-        print("\nWithout cloudscraper, AFA scraper will fail due to Cloudflare protection.\n")
+
+    if not CURL_CFFI_AVAILABLE and not CLOUDSCRAPER_AVAILABLE:
+        print("\nERROR: Neither curl_cffi nor cloudscraper installed!")
+        print("\nPreferred: pip install curl-cffi")
+        print("Fallback: pip install cloudscraper")
+        print("\nWithout one of these, AFA scraper will fail due to Cloudflare protection.\n")
         exit(1)
+
+    if CURL_CFFI_AVAILABLE:
+        print("\nUsing curl_cffi (best TLS fingerprint)")
+    else:
+        print("\nUsing cloudscraper (may not work on all systems)")
     
     test_config = {
         'delay_min': 2.0,

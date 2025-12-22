@@ -22,6 +22,10 @@ class ColemanScraper:
         "Martin Furniture": 224,
         "Steve Silver": 123,
         "Legacy Classic": 22,
+        "Intercon": 196,
+        "Westwood": 265,
+        "Aspenhome": 237,
+        "ACME": 185,
     }
     
     def __init__(self, config: dict):
