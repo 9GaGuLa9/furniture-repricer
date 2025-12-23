@@ -11,9 +11,9 @@ google_sheets:
     name: "Data"
 
 scrapers:
-  # Emma Mason - ВИМКНЕНО (блокування по країні)
+  # Emma Mason - ВИМКНЕНО (блокування по країні):
   emmamason:
-    enabled: false
+    enabled: false 
     delay_min: 2.0
     delay_max: 5.0
     retry_attempts: 3

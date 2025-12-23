@@ -112,7 +112,7 @@ class ColemanScraper:
         return products
     
     def scrape_manufacturer(self, manufacturer_name: str, manufacturer_id: int, 
-                           seen_skus: set) -> List[Dict[str, str]]:
+                            seen_skus: set) -> List[Dict[str, str]]:
         """Парсить всі товари виробника"""
         logger.info(f"Processing manufacturer: {manufacturer_name} (ID: {manufacturer_id})")
         

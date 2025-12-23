@@ -18,7 +18,7 @@ from app.modules import PricingEngine, BatchPricingProcessor, SKUMatcher
 from app.modules import GoogleSheetsClient, RepricerSheetsManager
 
 # Імпорт scrapers
-from app.scrapers.emmamason import scrape_emmamason
+from app.scrapers.emmamason_brands import scrape_emmamason_brands
 from app.scrapers.onestopbedrooms import scrape_onestopbedrooms
 from app.scrapers.coleman import scrape_coleman
 from app.scrapers.afa import scrape_afa
@@ -120,61 +120,49 @@ class FurnitureRepricer:
                 self.logger.error(f"Failed to load client data: {e}", exc_info=True)
                 return []
     
-    def _scrape_client_prices(self, products: List[Dict]) -> List[Dict]:
+    def _scrape_and_update_emma_mason(self) -> int:
         """
-        2. Парсити ціни клієнта (Emma Mason)
-        Оновлює products з актуальними цінами з сайту
+        Парсити Emma Mason по брендах та оновити Google Sheets
+        
+        Новий підхід:
+        1. Парсити всі бренди Emma Mason
+        2. Знайти співпадіння по URL
+        3. Оновити Our Sales Price, ID, та Price History
+        
+        Returns:
+            Кількість оновлених товарів
         """
-        with LogBlock("Scraping Client Prices (Emma Mason)", self.logger):
+        with LogBlock("Scraping and Updating Emma Mason", self.logger):
             if not self.config.is_scraper_enabled('emmamason'):
                 self.logger.warning("Emma Mason scraper disabled in config")
-                return products
+                return 0
             
             try:
-                # Отримати список URL товарів клієнта
-                client_urls = []
-                for product in products:
-                    # Спробувати різні варіанти назв колонок URL
-                    url = (product.get('our_url') or 
-                           product.get('Our URL') or 
-                           product.get('url') or
-                           product.get('URL'))
-                    
-                    if url and url.strip():  # Перевірити що не порожній
-                        client_urls.append(url.strip())
-                    else:
-                        # Лог для відладки
-                        sku = product.get('sku') or product.get('SKU')
-                        self.logger.debug(f"No URL for SKU {sku}")
+                # Імпортувати новий scraper
+                from app.scrapers.emmamason_brands import scrape_emmamason_brands
                 
-                if not client_urls:
-                    self.logger.warning("No client URLs found in data")
-                    return products
-                
-                self.logger.info(f"Scraping {len(client_urls)} client products...")
-                
-                # Парсити ціни
+                # Парсити всі бренди
+                self.logger.info("Scraping Emma Mason brands...")
                 scraper_config = self.config.get_scraper_config('emmamason')
-                scraped_prices = scrape_emmamason(client_urls, scraper_config)
+                scraped_products = scrape_emmamason_brands(scraper_config)
                 
-                self.stats['client_products'] = len(scraped_prices)
-                self.logger.info(f"Scraped {len(scraped_prices)} client prices")
+                self.stats['client_products'] = len(scraped_products)
+                self.logger.info(f"Scraped {len(scraped_products)} products from Emma Mason")
                 
-                # Оновити products з новими цінами
-                for product in products:
-                    product_url = product.get('our_url') or product.get('url')
-                    
-                    # Знайти відповідну scraped ціну
-                    for scraped in scraped_prices:
-                        if scraped['url'] == product_url:
-                            product['our_current_price'] = scraped['price']
-                            break
+                if not scraped_products:
+                    self.logger.warning("No products scraped from Emma Mason")
+                    return 0
                 
-                return products
+                # Оновити Google Sheets (batch операція)
+                self.logger.info("Updating Google Sheets with Emma Mason data...")
+                updated = self.sheets_manager.batch_update_emma_mason(scraped_products)
+                
+                self.logger.info(f"✓ Updated {updated} products with Emma Mason data")
+                return updated
                 
             except Exception as e:
-                self.logger.error(f"Failed to scrape client prices: {e}", exc_info=True)
-                return products
+                self.logger.error(f"Failed to scrape/update Emma Mason: {e}", exc_info=True)
+                return 0
     
     def _scrape_competitors(self) -> dict:
         """
@@ -595,9 +583,10 @@ class FurnitureRepricer:
                     self.logger.error("No products loaded - aborting")
                     return False
                 
-                # 2. Парсити ціни клієнта
-                self.logger.info("\n[STEP 2/6] Scraping client prices...")
-                products = self._scrape_client_prices(products)
+                # 2. Парсити та оновити Emma Mason (НОВА ЛОГІКА)
+                self.logger.info("\n[STEP 2/6] Scraping and updating Emma Mason...")
+                emma_updated = self._scrape_and_update_emma_mason()
+                self.stats['updated'] += emma_updated
                 
                 # 3. Парсити ціни конкурентів
                 self.logger.info("\n[STEP 3/6] Scraping competitor prices...")
@@ -611,9 +600,10 @@ class FurnitureRepricer:
                 self.logger.info("\n[STEP 5/6] Calculating prices...")
                 products = self._calculate_prices(products)
                 
-                # 6. Оновити Google Sheets
-                self.logger.info("\n[STEP 6/6] Updating Google Sheets...")
+                # 6. Оновити Google Sheets (тільки competitor prices)
+                self.logger.info("\n[STEP 6/6] Updating competitor prices...")
                 updated = self._update_sheets(products)
+                self.stats['updated'] += updated
                 
                 self._finalize_stats()
             

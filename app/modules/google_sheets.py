@@ -579,45 +579,7 @@ class RepricerSheetsManager:
         except Exception as e:
             self.logger.error(f"Failed to update prices for SKU {sku}: {e}")
             return False
-    
-    def add_to_history(self, sku: str, prices: Dict[str, Any]):
-        """
-        Додати запис в історію цін
-        ВИМКНЕНО для production через rate limits
-        """
-        # ТИМЧАСОВО ВИМКНЕНО для уникнення rate limit
-        self.logger.debug(f"History tracking disabled for SKU {sku}")
-        return
-        
-        # ОРИГІНАЛЬНИЙ КОД (закоментовано):
-        """
-        try:
-            sheet_id = self.config['main_sheet']['id']
-            history_name = self.config.get('history_sheet', {}).get('name', 'Price_History')
-            
-            # Перевірити чи існує аркуш історії
-            if not self.client.worksheet_exists(sheet_id, history_name):
-                # Створити аркуш з заголовками
-                ws = self.client.create_worksheet(sheet_id, history_name)
-                headers = ['Date', 'SKU', 'Our Price', 'Site 1', 'Site 2', 'Site 3', 'Suggested']
-                ws.update('A1', [headers])
-            
-            # Додати запис
-            row = [
-                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                sku,
-                prices.get('our_price', ''),
-                prices.get('site1_price', ''),
-                prices.get('site2_price', ''),
-                prices.get('site3_price', ''),
-                prices.get('suggest_price', '')
-            ]
-            
-            self.client.append_row(sheet_id, row, history_name)
-            
-        except Exception as e:
-            self.logger.error(f"Failed to add history for SKU {sku}: {e}")
-        """
+
     
     def batch_update_all(self, products: List[Dict]) -> int:
         """
@@ -751,6 +713,241 @@ class RepricerSheetsManager:
             self.logger.warning("No updates to perform!")
         
         return updated_count
+    
+    def add_to_history(self, url: str, old_price: float, new_price: float, emma_id: str = ''):
+        """
+        Додати запис в історію цін (для Emma Mason)
+        
+        Args:
+            url: URL товару
+            old_price: Стара ціна
+            new_price: Нова ціна
+            emma_id: ID з Emma Mason
+        """
+        try:
+            sheet_id = self.config['main_sheet']['id']
+            history_name = 'Price_History'
+            
+            # Перевірити чи існує аркуш історії
+            if not self.client.worksheet_exists(sheet_id, history_name):
+                # Створити аркуш з заголовками
+                self.logger.info(f"Creating Price_History worksheet...")
+                ws = self.client.create_worksheet(sheet_id, history_name)
+                headers = ['Date', 'URL', 'Emma Mason ID', 'Old Price', 'New Price', 'Change']
+                ws.update('A1', [headers])
+                time.sleep(0.5)
+            
+            # Розрахувати зміну
+            change = new_price - old_price if old_price else 0
+            
+            # Додати запис
+            row = [
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                url,
+                emma_id,
+                old_price,
+                new_price,
+                change
+            ]
+            
+            time.sleep(0.3)
+            self.client.append_row(sheet_id, row, history_name)
+            self.logger.debug(f"Added price history: {url} ${old_price} -> ${new_price}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to add price history: {e}")
+
+    def update_emma_mason_data(self, url: str, emma_id: str, new_price: float) -> bool:
+        """
+        Оновити дані Emma Mason для товару по URL
+        
+        Args:
+            url: URL товару (для пошуку рядка)
+            emma_id: ID з Emma Mason
+            new_price: Нова ціна
+        
+        Returns:
+            True якщо успішно
+        """
+        try:
+            sheet_id = self.config['main_sheet']['id']
+            sheet_name = self.config['main_sheet']['name']
+            
+            # Знайти рядок по URL
+            time.sleep(0.5)
+            worksheet = self.client.open_sheet(sheet_id, sheet_name)
+            
+            # Отримати всі URL (колонка F = Our URL)
+            all_urls = worksheet.col_values(6)  # F = 6
+            
+            # Знайти індекс
+            url_normalized = url.strip().lower()
+            row_num = None
+            
+            for idx, cell_url in enumerate(all_urls, start=1):
+                if cell_url.strip().lower() == url_normalized:
+                    row_num = idx
+                    break
+            
+            if not row_num:
+                self.logger.warning(f"URL not found in sheet: {url[:60]}")
+                return False
+            
+            # Отримати стару ціну (Our Sales Price = колонка D)
+            old_price_cell = worksheet.cell(row_num, 4).value  # D = 4
+            old_price = float(old_price_cell) if old_price_cell else 0.0
+            
+            # Підготувати оновлення
+            updates = []
+            
+            # Our Sales Price (колонка D = 4)
+            updates.append({
+                'range': f'D{row_num}',
+                'values': [[new_price]]
+            })
+            
+            # ID from emmamason (колонка R = 18)
+            updates.append({
+                'range': f'R{row_num}',
+                'values': [[emma_id]]
+            })
+            
+            # Last update (колонка Q = 17)
+            updates.append({
+                'range': f'Q{row_num}',
+                'values': [[datetime.now().strftime('%Y-%m-%d %H:%M:%S')]]
+            })
+            
+            # Виконати batch update
+            if updates:
+                time.sleep(0.3)
+                self.client.batch_update(sheet_id, updates, sheet_name)
+                self.logger.info(f"Updated Emma Mason data for row {row_num}: ${old_price} -> ${new_price}")
+                
+                # Додати в історію якщо ціна змінилась
+                if abs(new_price - old_price) > 0.01:
+                    self.add_to_history(url, old_price, new_price, emma_id)
+                
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Failed to update Emma Mason data: {e}")
+            return False
+
+    def batch_update_emma_mason(self, scraped_products: List[Dict]) -> int:
+        """
+        Batch оновлення для Emma Mason товарів
+        
+        Args:
+            scraped_products: Список товарів з Emma Mason [{'id': '', 'url': '', 'price': ''}]
+        
+        Returns:
+            Кількість оновлених товарів
+        """
+        try:
+            sheet_id = self.config['main_sheet']['id']
+            sheet_name = self.config['main_sheet']['name']
+            
+            self.logger.info(f"Batch updating Emma Mason data for {len(scraped_products)} products...")
+            
+            # Завантажити всі URL з таблиці
+            time.sleep(0.5)
+            worksheet = self.client.open_sheet(sheet_id, sheet_name)
+            all_data = worksheet.get_all_values()
+            
+            # Створити словник URL -> row_number
+            url_to_row = {}
+            for idx, row in enumerate(all_data, start=1):
+                if len(row) > 5:  # F = index 5 (0-based)
+                    url = row[5].strip().lower()  # Our URL колонка F
+                    if url:
+                        url_to_row[url] = {
+                            'row_num': idx,
+                            'old_price': row[3] if len(row) > 3 else ''  # D = Our Sales Price
+                        }
+            
+            self.logger.info(f"Loaded {len(url_to_row)} URLs from sheet")
+            
+            # Знайти співпадіння та підготувати оновлення
+            all_updates = []
+            updated_count = 0
+            history_records = []
+            
+            for product in scraped_products:
+                url = product.get('url', '').strip().lower()
+                emma_id = product.get('id', '')
+                new_price = float(product.get('price', 0))
+                
+                if url not in url_to_row:
+                    continue
+                
+                row_info = url_to_row[url]
+                row_num = row_info['row_num']
+                old_price = float(row_info['old_price']) if row_info['old_price'] else 0.0
+                
+                # Our Sales Price (D = 4)
+                all_updates.append({
+                    'range': f'D{row_num}',
+                    'values': [[new_price]]
+                })
+                
+                # ID from emmamason (R = 18)
+                all_updates.append({
+                    'range': f'R{row_num}',
+                    'values': [[emma_id]]
+                })
+                
+                # Last update (Q = 17)
+                all_updates.append({
+                    'range': f'Q{row_num}',
+                    'values': [[datetime.now().strftime('%Y-%m-%d %H:%M:%S')]]
+                })
+                
+                updated_count += 1
+                
+                # Зберегти для історії якщо ціна змінилась
+                if abs(new_price - old_price) > 0.01:
+                    history_records.append({
+                        'url': product['url'],
+                        'emma_id': emma_id,
+                        'old_price': old_price,
+                        'new_price': new_price
+                    })
+            
+            # Виконати ОДИН batch update для всіх змін
+            if all_updates:
+                self.logger.info(f"Executing batch update with {len(all_updates)} changes...")
+                
+                # Розбити на chunks по 500
+                chunk_size = 500
+                for i in range(0, len(all_updates), chunk_size):
+                    chunk = all_updates[i:i+chunk_size]
+                    time.sleep(0.5)
+                    self.client.batch_update(sheet_id, chunk, sheet_name)
+                    
+                    if i + chunk_size < len(all_updates):
+                        time.sleep(1.0)
+                
+                self.logger.info(f"✓ Batch update completed: {updated_count} products")
+            
+            # Додати записи в історію
+            if history_records:
+                self.logger.info(f"Adding {len(history_records)} records to Price_History...")
+                for record in history_records:
+                    self.add_to_history(
+                        record['url'],
+                        record['old_price'],
+                        record['new_price'],
+                        record['emma_id']
+                    )
+            
+            return updated_count
+            
+        except Exception as e:
+            self.logger.error(f"Failed batch update Emma Mason: {e}")
+            return 0
 
     def _to_float(self, value, default: float = 0.0) -> float:
         """

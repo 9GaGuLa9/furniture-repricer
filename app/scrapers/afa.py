@@ -1,11 +1,13 @@
 """
-AFA Stores Scraper - CLOUDFLARE BYPASS + VENDOR FILTERING
-Використовує cloudscraper для обходу Cloudflare + Shopify collections
+AFA Stores Scraper - CLOUDFLARE BYPASS + CATEGORY-BASED SCRAPING
+Використовує cloudscraper для обходу Cloudflare + проходить по категоріях виробників
 """
 
 import time
 import logging
-from typing import List, Dict, Optional
+import json
+from pathlib import Path
+from typing import List, Dict, Optional, Set
 from datetime import datetime
 
 try:
@@ -25,49 +27,53 @@ logger = logging.getLogger("afa")
 
 
 class AFAScraper:
-    """Scraper для afastores.com через Shopify collections з vendor filtering"""
+    """Scraper для afastores.com через Shopify collections - category-based"""
 
     BASE_URL = "https://www.afastores.com"
-
-    # Пріоритетні виробники
-    PRIORITY_VENDORS = [
-        "Steve Silver",
-        "Martin Furniture", 
-        "Legacy Classic Furniture",
-        "Legacy Classic Kids",
-        "ACME Furniture",
-        "Intercon Furniture",
-        "Westwood Design",
-    ]
+    PRODUCTS_PER_PAGE = 30  # AFA показує 30 товарів на сторінку
+    
+    # Mapping виробників до їх slug для завантаження категорій
+    MANUFACTURER_SLUGS = {
+        "Steve Silver": "steve-silver",
+        "Legacy Classic Furniture": "legacy-classic-furniture",
+        "Legacy Classic Kids": "legacy-classic-kids",
+        "Martin Furniture": "martin-furniture",
+        "ACME Furniture": "acme-furniture",
+        "Intercon Furniture": "intercon-furniture",
+        "Westwood Design": "westwood-design"
+    }
 
     def __init__(self, config: dict):
         self.config = config
-        self.delay_min = config.get('delay_min', 2.0)
-        self.delay_max = config.get('delay_max', 4.0)
+        self.delay_min = config.get('delay_min', 1.0)
+        self.delay_max = config.get('delay_max', 2.0)
         self.retry_attempts = config.get('retry_attempts', 3)
         self.timeout = config.get('timeout', 30)
-        self.proxies = config.get('proxies', None)  # {'http': 'http://proxy:port', 'https': 'http://proxy:port'}
+        self.proxies = config.get('proxies', None)
         
         self.stats = {
             'total_products': 0,
             'unique_products': 0,
             'errors': 0,
-            'vendors_processed': 0
+            'manufacturers_processed': 0,
+            'categories_processed': 0,
+            'empty_categories': 0
         }
 
+        # Завантажити категорії з JSON
+        self.manufacturer_categories = self._load_categories()
+        
         # Initialize session with best available method
         self.session_type = None
         self.impersonate = None
 
         if CURL_CFFI_AVAILABLE:
-            # curl_cffi - best TLS fingerprint, works most reliably
             self.session_type = 'curl_cffi'
-            self.impersonate = 'chrome110'  # Verified working
-            self.scraper = None  # Will use curl_requests directly
+            self.impersonate = 'chrome110'
+            self.scraper = None
             logger.info(f"AFA Stores scraper initialized with curl_cffi (impersonate={self.impersonate})")
 
         elif CLOUDSCRAPER_AVAILABLE:
-            # Fallback to cloudscraper
             import cloudscraper
             self.session_type = 'cloudscraper'
             self.scraper = cloudscraper.create_scraper(
@@ -98,7 +104,6 @@ class AFAScraper:
             self._warm_up_session()
 
         else:
-            # Last resort - regular requests (will likely fail)
             import requests
             self.session_type = 'requests'
             self.scraper = requests.Session()
@@ -107,9 +112,39 @@ class AFAScraper:
             })
             logger.warning("AFA Stores scraper initialized with basic requests - will likely fail!")
 
+    def _load_categories(self) -> dict:
+        """Завантажити категорії виробників з JSON файлу"""
+        try:
+            # Використати helper функцію з app.data
+            # Спробувати імпортувати якщо запускається як модуль
+            try:
+                from ..data import load_manufacturer_categories
+                categories = load_manufacturer_categories()
+            except (ImportError, ValueError):
+                # Fallback - завантажити напряму
+                from pathlib import Path
+                import json
+                
+                data_dir = Path(__file__).parent.parent / "data"
+                categories_file = data_dir / "manufacturer_categories.json"
+                
+                if not categories_file.exists():
+                    logger.error(f"Categories file not found: {categories_file}")
+                    return {}
+                
+                logger.info(f"Loading categories from: {categories_file}")
+                with open(categories_file, 'r', encoding='utf-8') as f:
+                    categories = json.load(f)
+            
+            logger.info(f"✓ Loaded categories for {len(categories)} manufacturers")
+            return categories
+            
+        except Exception as e:
+            logger.error(f"Failed to load categories: {e}")
+            return {}
+
     def _warm_up_session(self):
         """Отримує початкові cookies, відвідуючи головну сторінку"""
-        # curl_cffi doesn't need warm-up - it handles TLS perfectly
         if self.session_type == 'curl_cffi':
             logger.debug("Skipping warm-up for curl_cffi (not needed)")
             return
@@ -123,7 +158,7 @@ class AFAScraper:
             )
             response.raise_for_status()
             logger.info(f"Session warmed up. Cookies: {len(self.scraper.cookies)} items")
-            time.sleep(2)  # Затримка після початкового візиту
+            time.sleep(2)
         except Exception as e:
             logger.warning(f"Failed to warm up session: {e}")
 
@@ -132,29 +167,23 @@ class AFAScraper:
         import random
         time.sleep(random.uniform(self.delay_min, self.delay_max))
 
-    def _fetch_products_json(self, vendor_name: str, page: int, limit: int = 250) -> Optional[dict]:
+    def _fetch_category_products(self, category_slug: str, page: int) -> Optional[dict]:
         """
-        Отримує товари через Shopify JSON API
+        Отримує товари з конкретної категорії через Shopify JSON API
 
         Args:
-            vendor_name: Назва виробника (напр. "Steve Silver")
+            category_slug: Slug категорії (напр. "counter-stools-by-steve-silver")
             page: Номер сторінки
-            limit: Кількість товарів на сторінку (макс 250)
 
         Returns:
             JSON response або None у разі помилки
         """
-        url = f"{self.BASE_URL}/products.json"
-        params = {
-            'vendor': vendor_name,
-            'limit': limit,
-            'page': page
-        }
+        url = f"{self.BASE_URL}/collections/{category_slug}/products.json"
+        params = {'page': page}
 
         for attempt in range(self.retry_attempts):
             try:
                 if self.session_type == 'curl_cffi':
-                    # Use curl_cffi for best TLS fingerprint
                     response = curl_requests.get(
                         url,
                         params=params,
@@ -163,7 +192,6 @@ class AFAScraper:
                         proxies=self.proxies
                     )
                 else:
-                    # Use cloudscraper or requests
                     response = self.scraper.get(
                         url,
                         params=params,
@@ -183,13 +211,13 @@ class AFAScraper:
         self.stats['errors'] += 1
         return None
     
-    def _extract_products_from_json(self, json_data: dict, vendor_name: str) -> List[Dict[str, str]]:
+    def _extract_products_from_json(self, json_data: dict, manufacturer_name: str) -> List[Dict[str, str]]:
         """
         Витягує товари з Shopify JSON API response
 
         Args:
-            json_data: JSON response from /products.json
-            vendor_name: Назва виробника
+            json_data: JSON response from /collections/.../products.json
+            manufacturer_name: Назва виробника
 
         Returns:
             Список товарів
@@ -211,7 +239,7 @@ class AFAScraper:
                         'price': variant.get('price', ''),
                         'url': f"{self.BASE_URL}/products/{product.get('handle', '')}",
                         'title': product.get('title', ''),
-                        'vendor': product.get('vendor', vendor_name),
+                        'vendor': product.get('vendor', manufacturer_name),
                         'available': variant.get('available', False)
                     })
 
@@ -220,38 +248,37 @@ class AFAScraper:
 
         return products
     
-    def scrape_vendor(self, vendor_name: str, seen_skus: set) -> List[Dict[str, str]]:
+    def scrape_category(self, category_slug: str, manufacturer_name: str, seen_skus: Set[str]) -> List[Dict[str, str]]:
         """
-        Парсить всі товари одного виробника через Shopify JSON API
+        Парсить всі товари з однієї категорії
 
         Args:
-            vendor_name: Назва виробника (напр. "Steve Silver")
+            category_slug: Slug категорії (напр. "counter-stools-by-steve-silver")
+            manufacturer_name: Назва виробника для логування
             seen_skus: Set для відстеження дублікатів
 
         Returns:
-            Список товарів від цього виробника
+            Список товарів з цієї категорії
         """
-        logger.info(f"Processing vendor: {vendor_name}")
-
-        vendor_products = []
+        category_products = []
         page = 1
-        limit = 250  # Максимум дозволений Shopify
-
+        
         while True:
-            logger.debug(f"  Fetching page {page}...")
+            logger.debug(f"    Page {page}...")
 
             # Отримати JSON з API
-            json_data = self._fetch_products_json(vendor_name, page, limit)
+            json_data = self._fetch_category_products(category_slug, page)
 
             if not json_data:
-                logger.debug(f"  No data on page {page}")
+                logger.debug(f"    No data on page {page}")
                 break
 
             # Витягти products з JSON
-            page_products = self._extract_products_from_json(json_data, vendor_name)
+            page_products = self._extract_products_from_json(json_data, manufacturer_name)
 
+            # Перевірка на пустий список - зупинка
             if not page_products:
-                logger.info(f"  Vendor {vendor_name}: no products on page {page}")
+                logger.debug(f"    Empty products list on page {page} - stopping")
                 break
 
             # Додати тільки унікальні SKU
@@ -260,41 +287,102 @@ class AFAScraper:
                 sku = product['sku']
                 if sku not in seen_skus:
                     seen_skus.add(sku)
-                    vendor_products.append(product)
+                    category_products.append(product)
                     new_count += 1
 
-            logger.info(f"  Page {page}: {len(page_products)} products, {new_count} new (total: {len(vendor_products)})")
+            logger.debug(f"    Page {page}: {len(page_products)} products, {new_count} new")
 
-            # Якщо нічого нового - всі товари вже були додані раніше
-            if new_count == 0:
-                logger.info(f"  Vendor {vendor_name}: no new products on page {page}, stopping")
-                break
-
-            # Якщо отримали менше ніж limit - це остання сторінка
-            products_on_page = len(json_data.get('products', []))
-            if products_on_page < limit:
-                logger.info(f"  Received {products_on_page} products (< {limit}), this is the last page")
+            # Якщо менше 30 товарів - це остання сторінка
+            if len(page_products) < self.PRODUCTS_PER_PAGE:
+                logger.debug(f"    Got {len(page_products)} products (< {self.PRODUCTS_PER_PAGE}) - last page")
                 break
 
             page += 1
 
-            # Максимум 50 сторінок (запобігання нескінченному циклу)
-            if page > 50:
-                logger.warning(f"  Vendor {vendor_name}: reached page limit (50)")
+            # Захист від нескінченного циклу
+            if page > 100:
+                logger.warning(f"    Reached page limit (100) for category {category_slug}")
                 break
 
             self._random_delay()
 
-        logger.info(f"Vendor {vendor_name}: collected {len(vendor_products)} unique products")
-        self.stats['vendors_processed'] += 1
+        return category_products
+    
+    def scrape_manufacturer(self, manufacturer_name: str, manufacturer_slug: str, 
+                           seen_skus: Set[str]) -> List[Dict[str, str]]:
+        """
+        Парсить всі категорії одного виробника
 
-        return vendor_products
+        Args:
+            manufacturer_name: Назва виробника (напр. "Steve Silver")
+            manufacturer_slug: Slug виробника для отримання категорій
+            seen_skus: Set для відстеження дублікатів
+
+        Returns:
+            Список товарів від цього виробника
+        """
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Processing manufacturer: {manufacturer_name}")
+        logger.info(f"{'='*60}")
+
+        # Отримати список категорій для цього виробника
+        categories = self.manufacturer_categories.get(manufacturer_slug, [])
+        
+        if not categories:
+            logger.warning(f"No categories found for {manufacturer_name} (slug: {manufacturer_slug})")
+            return []
+
+        logger.info(f"Found {len(categories)} categories for {manufacturer_name}")
+        
+        manufacturer_products = []
+        start_time = datetime.now()
+        
+        for idx, category_slug in enumerate(categories, 1):
+            logger.info(f"  [{idx}/{len(categories)}] Category: {category_slug}")
+            
+            # Парсити категорію
+            category_products = self.scrape_category(category_slug, manufacturer_name, seen_skus)
+            
+            if category_products:
+                manufacturer_products.extend(category_products)
+                logger.info(f"    ✓ Collected {len(category_products)} new products (total: {len(manufacturer_products)})")
+            else:
+                logger.info(f"    ⊘ Empty category")
+                self.stats['empty_categories'] += 1
+            
+            self.stats['categories_processed'] += 1
+            
+            # Progress update кожні 10 категорій
+            if idx % 10 == 0:
+                elapsed = (datetime.now() - start_time).total_seconds() / 60
+                speed = idx / elapsed if elapsed > 0 else 0
+                remaining = len(categories) - idx
+                eta = remaining / speed if speed > 0 else 0
+                
+                logger.info(f"\n  📊 Progress: {idx}/{len(categories)} ({idx/len(categories)*100:.1f}%)")
+                logger.info(f"     Products: {len(manufacturer_products)}")
+                logger.info(f"     Speed: {speed:.1f} cat/min")
+                logger.info(f"     ETA: {eta:.1f} min\n")
+            
+            # Затримка між категоріями
+            if idx < len(categories):
+                self._random_delay()
+        
+        elapsed = (datetime.now() - start_time).total_seconds() / 60
+        logger.info(f"\n✓ Manufacturer {manufacturer_name} completed:")
+        logger.info(f"  Categories processed: {len(categories)}")
+        logger.info(f"  Products collected: {len(manufacturer_products)}")
+        logger.info(f"  Time: {elapsed:.1f} minutes")
+        
+        self.stats['manufacturers_processed'] += 1
+        
+        return manufacturer_products
     
     def scrape_all_products(self) -> List[Dict[str, str]]:
-        """Парсить всі товари від пріоритетних виробників"""
+        """Парсить всі товари від всіх виробників"""
         logger.info("="*60)
         logger.info(f"Starting AFA Stores scraping (method: {self.session_type})")
-        logger.info(f"Priority vendors: {self.PRIORITY_VENDORS}")
+        logger.info(f"Manufacturers: {list(self.MANUFACTURER_SLUGS.keys())}")
         logger.info("="*60)
 
         if self.session_type == 'requests':
@@ -302,13 +390,20 @@ class AFAScraper:
             logger.error("Install curl_cffi: pip install curl-cffi")
             return []
         
-        all_products = []
-        seen_skus = set()
+        if not self.manufacturer_categories:
+            logger.error("No categories loaded! Check manufacturer_categories.json")
+            return []
         
-        for vendor_name in self.PRIORITY_VENDORS:
-            logger.info(f"\nProcessing vendor: {vendor_name}")
+        all_products = []
+        seen_skus: Set[str] = set()
+        overall_start = datetime.now()
+        
+        for manufacturer_name, manufacturer_slug in self.MANUFACTURER_SLUGS.items():
+            logger.info(f"\n{'#'*60}")
+            logger.info(f"# MANUFACTURER: {manufacturer_name}")
+            logger.info(f"{'#'*60}\n")
             
-            products = self.scrape_vendor(vendor_name, seen_skus)
+            products = self.scrape_manufacturer(manufacturer_name, manufacturer_slug, seen_skus)
             all_products.extend(products)
             
             self.stats['total_products'] = len(all_products)
@@ -317,9 +412,17 @@ class AFAScraper:
             # Затримка між виробниками
             time.sleep(3)
         
+        elapsed = (datetime.now() - overall_start).total_seconds() / 60
+        
+        logger.info("\n" + "="*60)
+        logger.info("✅ SCRAPING COMPLETED")
         logger.info("="*60)
-        logger.info(f"Completed: {len(all_products)} products from {len(seen_skus)} unique SKUs")
-        logger.info(f"Vendors processed: {self.stats['vendors_processed']}")
+        logger.info(f"Total time: {elapsed:.1f} minutes ({elapsed/60:.2f} hours)")
+        logger.info(f"Manufacturers processed: {self.stats['manufacturers_processed']}")
+        logger.info(f"Categories processed: {self.stats['categories_processed']}")
+        logger.info(f"Empty categories: {self.stats['empty_categories']}")
+        logger.info(f"Total products: {len(all_products)}")
+        logger.info(f"Unique SKUs: {len(seen_skus)}")
         logger.info(f"Errors: {self.stats['errors']}")
         logger.info("="*60)
         
@@ -363,33 +466,38 @@ class AFAScraper:
         except Exception as e:
             results['details'].append(f"Homepage error: {e}")
 
-        # Тест 2: Products JSON API
+        # Тест 2: Products JSON API (test category)
         try:
             logger.info("Testing products API...")
-            test_url = f"{self.BASE_URL}/products.json"
+            
+            # Використати першу категорію першого виробника
+            first_mfr_slug = list(self.MANUFACTURER_SLUGS.values())[0] if self.MANUFACTURER_SLUGS else None
+            if first_mfr_slug and first_mfr_slug in self.manufacturer_categories:
+                test_category = self.manufacturer_categories[first_mfr_slug][0]
+                test_url = f"{self.BASE_URL}/collections/{test_category}/products.json"
 
-            if self.session_type == 'curl_cffi':
-                resp = curl_requests.get(
-                    test_url,
-                    params={'limit': 1},
-                    timeout=self.timeout,
-                    impersonate=self.impersonate,
-                    proxies=self.proxies
-                )
-            else:
-                resp = self.scraper.get(
-                    test_url,
-                    params={'limit': 1},
-                    timeout=self.timeout,
-                    proxies=self.proxies
-                )
+                if self.session_type == 'curl_cffi':
+                    resp = curl_requests.get(
+                        test_url,
+                        params={'page': 1},
+                        timeout=self.timeout,
+                        impersonate=self.impersonate,
+                        proxies=self.proxies
+                    )
+                else:
+                    resp = self.scraper.get(
+                        test_url,
+                        params={'page': 1},
+                        timeout=self.timeout,
+                        proxies=self.proxies
+                    )
 
-            results['products_api'] = resp.status_code == 200
-            results['details'].append(f"Products API: {resp.status_code}")
+                results['products_api'] = resp.status_code == 200
+                results['details'].append(f"Products API: {resp.status_code}")
 
-            if resp.status_code == 403:
-                results['ip_blocked'] = True
-                results['details'].append("403 Forbidden - possible IP block")
+                if resp.status_code == 403:
+                    results['ip_blocked'] = True
+                    results['details'].append("403 Forbidden - possible IP block")
         except Exception as e:
             results['details'].append(f"Products API error: {e}")
             if '403' in str(e):
@@ -427,14 +535,14 @@ if __name__ == "__main__":
         print("\nUsing cloudscraper (may not work on all systems)")
     
     test_config = {
-        'delay_min': 2.0,
-        'delay_max': 4.0,
+        'delay_min': 1.0,
+        'delay_max': 2.0,
         'retry_attempts': 3,
         'timeout': 30
     }
     
     print("\n" + "="*60)
-    print("ТЕСТ AFA STORES SCRAPER (CLOUDSCRAPER + VENDOR COLLECTIONS)")
+    print("ТЕСТ AFA STORES SCRAPER (CATEGORY-BASED)")
     print("="*60 + "\n")
     
     results = scrape_afa(test_config)
@@ -465,8 +573,7 @@ if __name__ == "__main__":
                 print(f"   URL: {product['url'][:60]}...")
     else:
         print("\n❌ Немає результатів")
-        print("\nМожливі причини:")
-        print("1. Cloudflare блокує запити")
-        print("2. Vendor collection URLs змінились")
-        print("3. HTML структура змінилась")
-        print("\nПеревірте логи вище для деталей.")
+        print("\nПеревірте:")
+        print("1. Чи існує файл manufacturer_categories.json")
+        print("2. Чи Cloudflare не блокує ваш IP")
+        print("3. Логи вище для деталей")
