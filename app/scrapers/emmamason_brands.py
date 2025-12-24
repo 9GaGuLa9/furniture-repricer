@@ -1,43 +1,46 @@
 """
-Emma Mason Production Scraper - CURL_CFFI APPROACH (WORKING!)
-Базується на ОРИГІНАЛЬНОМУ робочому коді з curl_cffi
-БЕЗ Selenium - простіше, швидше, менше ресурсів!
+Emma Mason Brands Scraper - PRODUCTION INTEGRATED VERSION
+100% сумісний з app/main.py та app/modules/google_sheets.py
+
+МЕХАНІЗМ:
+1. Збирає товари з брендів → структура {id, url, price}
+2. main.py викликає scrape_emmamason_brands(config)
+3. google_sheets.batch_update_emma_mason() шукає по URL та записує
 """
 
-import json
 import time
 import random
-from typing import List, Dict, Optional
+import logging
+from typing import List, Dict, Optional, Set
 from datetime import datetime
 from bs4 import BeautifulSoup
-import logging
 
-# Спробувати імпортувати curl_cffi (ОБОВ'ЯЗКОВО для production!)
+# Спробувати імпортувати curl_cffi
 try:
     from curl_cffi import requests
     CURL_CFFI_AVAILABLE = True
 except ImportError:
     import requests
     CURL_CFFI_AVAILABLE = False
-    print("❌ curl_cffi not found! Install: pip install curl-cffi")
-    print("⚠️  Fallback to standard requests (may fail with 403)")
+    logging.warning("⚠️ curl_cffi not found, using standard requests")
 
-logger = logging.getLogger("emmamason_production")
+logger = logging.getLogger("emmamason_brands")
 
 
-class EmmaMasonProductionScraper:
-    """Production scraper для emmamason.com - curl_cffi підхід"""
+class EmmaMasonBrandsScraper:
+    """Scraper для emmamason.com - збирає по брендах"""
     
     BASE_URL = "https://emmamason.com"
     
-    # 5 цільових виробників
+    # Цільові бренди (з вашого config)
     BRANDS = [
-        {"name": "ACME", "url": "brands-acme-furniture.html"},
-        {"name": "Westwood Design", "url": "brands-by-westwood-design~937124.html.html"},
-        {"name": "Legacy Classic", "url": "brands-legacy-classic.html"},
-        {"name": "Aspenhome Furniture", "url": "aspenhome-furniture-by-aspenhome~587712.html.html"},
-        {"name": "Steve Silver", "url": "steve-silver-by-steve-silver~1804527.html.html"},
-        {"name": "Intercon", "url": "intercon-furniture-by-intercon-furniture~1035926.html"},
+        {"name": "ACME", "url": "brands-by-acme~129973.html"},
+        {"name": "Westwood Design", "url": "brands-by-westwood-design~937124.html"},
+        {"name": "Legacy Classic", "url": "brands-by-legacy-classic~130027.html"},
+        {"name": "Legacy Classic", "url": "brands-by-legacy-classic-kids~130028.html"},
+        {"name": "Aspenhome Furniture", "url": "brands-by-aspenhome~129985.html"},
+        {"name": "Steve Silver", "url": "brands-by-steve-silver~1242933.html"},
+        {"name": "Intercon", "url": "brands-by-intercon~130018.html"},
     ]
     
     USER_AGENTS = [
@@ -50,26 +53,26 @@ class EmmaMasonProductionScraper:
         self.delay_min = config.get('delay_min', 2.0)
         self.delay_max = config.get('delay_max', 4.0)
         self.retry_attempts = config.get('retry_attempts', 3)
-        self.timeout = config.get('timeout', 30)
-        self.per_page = 40  # Products per page
+        self.timeout = config.get('timeout', 45)
+        self.per_page = 40
         
         self.stats = {
             'total_products': 0,
-            'unique_products': 0,
+            'unique_ids': 0,
+            'duplicate_ids': 0,
             'brands_processed': 0,
             'pages_processed': 0,
-            'errors': 0
+            'errors': 0,
+            'timeouts': 0
         }
         
         if not CURL_CFFI_AVAILABLE:
             logger.error("curl_cffi not available! Scraper may fail!")
         else:
-            logger.info("✓ curl_cffi available - Cloudflare bypass ready")
+            logger.info("✓ curl_cffi available")
         
         logger.info("="*60)
-        logger.info("Emma Mason Production Scraper (curl_cffi)")
-        logger.info(f"Method: HTTP requests (no browser)")
-        logger.info(f"Cloudflare bypass: impersonate=chrome120")
+        logger.info("Emma Mason Brands Scraper")
         logger.info("="*60)
     
     def _random_delay(self):
@@ -82,8 +85,7 @@ class EmmaMasonProductionScraper:
     
     def _fetch_page(self, url: str, referer: Optional[str] = None) -> Optional[str]:
         """
-        Завантажити сторінку (КЛЮЧОВИЙ МЕТОД!)
-        Використовує curl_cffi + impersonate для обходу Cloudflare
+        Завантажити сторінку (curl_cffi + impersonate)
         """
         for attempt in range(1, self.retry_attempts + 1):
             try:
@@ -98,18 +100,14 @@ class EmmaMasonProductionScraper:
                 if referer:
                     headers["referer"] = referer
                 
-                # ═══════════════════════════════════════════════════════
-                # КЛЮЧ ДО УСПІХУ: curl_cffi + impersonate="chrome120"
-                # ═══════════════════════════════════════════════════════
                 if CURL_CFFI_AVAILABLE:
                     response = requests.get(
                         url,
                         headers=headers,
-                        impersonate="chrome120",  # ← КРИТИЧНО!
+                        impersonate="chrome120",
                         timeout=self.timeout
                     )
                 else:
-                    # Fallback (може не працювати)
                     response = requests.get(
                         url,
                         headers=headers,
@@ -128,8 +126,15 @@ class EmmaMasonProductionScraper:
                     time.sleep(3)
                     
             except Exception as e:
-                logger.error(f"Request error (attempt {attempt}): {e}")
-                time.sleep(3)
+                error_msg = str(e)
+                
+                if "timed out" in error_msg.lower() or "timeout" in error_msg.lower():
+                    self.stats['timeouts'] += 1
+                    logger.warning(f"Timeout (attempt {attempt}/{self.retry_attempts})")
+                    time.sleep(random.uniform(5, 10))
+                else:
+                    logger.error(f"Request error (attempt {attempt}): {e}")
+                    time.sleep(3)
         
         self.stats['errors'] += 1
         return None
@@ -137,40 +142,39 @@ class EmmaMasonProductionScraper:
     def _extract_products_from_page(self, html: str, brand_name: str) -> List[Dict]:
         """
         Витягти товари зі сторінки бренду
-        Парсить product-item-info блоки
-        Збирає: product_id, price, url
+        
+        ✅ КРИТИЧНО: Повертає структуру для batch_update_emma_mason():
+        {
+            'id': product_id,     # ← Колонка R: ID from emmamason
+            'url': url,           # ← Колонка F: Our URL (для пошуку)
+            'price': price,       # ← Колонка D: Our Sales Price
+            'brand': brand_name,  # Для статистики
+        }
         """
         products = []
-
+        
         try:
             soup = BeautifulSoup(html, 'html.parser')
-
-            # Знайти всі product items
             product_items = soup.find_all('div', class_='product-item-info')
-
+            
             for item in product_items:
                 try:
-                    # Product ID (з price-box data-product-id)
+                    # Product ID з price-box data-product-id
                     price_box = item.find('div', {'data-role': 'priceBox'})
                     if not price_box:
-                        logger.debug("No price-box found, skipping")
                         continue
-
+                    
                     product_id = price_box.get('data-product-id')
                     if not product_id:
-                        logger.debug("No product ID found, skipping")
                         continue
-
+                    
                     # URL
                     link = item.find('a', class_='product-item-link')
-                    if not link:
-                        logger.debug("No link found, skipping")
-                        continue
-                    url = link.get('href')
+                    url = link['href'] if link else None
+                    
                     if not url:
-                        logger.debug("No href found, skipping")
                         continue
-
+                    
                     # Ціна
                     price_elem = item.find('span', class_='price')
                     price = None
@@ -178,160 +182,161 @@ class EmmaMasonProductionScraper:
                         price_text = price_elem.get_text(strip=True)
                         price = price_text.replace('$', '').replace(',', '').strip()
                         try:
-                            float(price)  # Перевірити що валідна
+                            float(price)
                         except:
                             price = None
-
+                    
+                    # ✅ СТРУКТУРА для Google Sheets integration
+                    # ✅ КЛЮЧОВО: Поле 'id', НЕ 'product_id'!
                     products.append({
-                        'product_id': product_id,
-                        'brand': brand_name,
-                        'url': url,
-                        'price': price,
+                        'id': product_id,           # ← ID from emmamason (R)
+                        'url': url,                 # ← Our URL (F) для пошуку
+                        'price': price,             # ← Our Sales Price (D)
+                        'brand': brand_name,        # Для статистики
                         'scraped_at': datetime.now().isoformat()
                     })
-
+                
                 except Exception as e:
-                    logger.debug(f"Failed to parse product item: {e}")
+                    logger.debug(f"Failed to parse product: {e}")
                     continue
-
+        
         except Exception as e:
-            logger.error(f"Failed to parse page HTML: {e}")
-
+            logger.error(f"Failed to parse page: {e}")
+        
         return products
     
-    def scrape_brand(self, brand_info: dict, seen_ids: set) -> List[Dict]:
+    def scrape_brand(self, brand_info: dict, seen_ids: Set[str]) -> List[Dict]:
         """
-        Парсити один бренд (всі сторінки)
+        Парсити один бренд
         """
         brand_name = brand_info['name']
         brand_url = brand_info['url']
-
+        
         logger.info(f"Processing brand: {brand_name}")
-
+        
         brand_products = []
         page = 1
-
+        
         while True:
-            # URL з pagination
             if page == 1:
                 url = f"{self.BASE_URL}/{brand_url}?product_list_limit={self.per_page}"
             else:
                 url = f"{self.BASE_URL}/{brand_url}?p={page}&product_list_limit={self.per_page}"
-
+            
             logger.debug(f"  Page {page}: {url}")
-
-            # Завантажити сторінку
+            
             html = self._fetch_page(url, referer=self.BASE_URL)
-
+            
             if not html:
                 logger.error(f"  Failed to fetch page {page}")
                 break
-
-            # Перевірити Cloudflare challenge
+            
             if "Just a moment" in html or "Checking your browser" in html:
-                logger.warning(f"  Cloudflare challenge detected!")
-                logger.warning(f"  This should not happen with curl_cffi + impersonate")
+                logger.warning(f"  Cloudflare challenge detected")
                 break
-
-            # Витягти товари
+            
             products = self._extract_products_from_page(html, brand_name)
-
+            
             if not products:
-                logger.info(f"  No products on page {page}, end of brand")
+                logger.info(f"  No products on page {page}")
                 break
-
+            
             # Додати унікальні
             new_count = 0
+            duplicate_count = 0
+            
             for product in products:
-                product_id = product['product_id']
-                if product_id not in seen_ids:
+                product_id = product['id']
+                
+                if product_id in seen_ids:
+                    duplicate_count += 1
+                    self.stats['duplicate_ids'] += 1
+                else:
                     seen_ids.add(product_id)
                     brand_products.append(product)
                     new_count += 1
-
-            logger.info(f"  Page {page}: {len(products)} products, {new_count} new (total: {len(brand_products)})")
-
+            
+            logger.info(f"  Page {page}: {len(products)} products, {new_count} new, {duplicate_count} duplicates (total: {len(brand_products)})")
+            
             self.stats['pages_processed'] += 1
-
-            # Остання сторінка?
+            
             if len(products) < self.per_page:
                 logger.info(f"  Last page (products < {self.per_page})")
                 break
-
-            # Ліміт сторінок
-            if page >= 50:
-                logger.warning(f"  Page limit reached (50)")
+            
+            if page >= 100:
+                logger.warning(f"  Page limit reached (100)")
                 break
-
+            
             page += 1
-
-            # Затримка між сторінками
             self._random_delay()
-
+        
         logger.info(f"Brand {brand_name}: {len(brand_products)} unique products")
         self.stats['brands_processed'] += 1
-
+        
         return brand_products
     
-    def scrape_all_products(self) -> List[Dict]:
+    def scrape_all_brands(self) -> List[Dict]:
         """
         Парсити всі бренди
-        Головний метод для production
         """
         logger.info("="*60)
         logger.info("Starting brand-based scraping")
         logger.info(f"Brands: {[b['name'] for b in self.BRANDS]}")
         logger.info("="*60)
-
+        
         all_products = []
         seen_ids = set()
         start_time = datetime.now()
-
+        
         for idx, brand_info in enumerate(self.BRANDS, 1):
             logger.info(f"\n{'='*60}")
             logger.info(f"📂 BRAND {idx}/{len(self.BRANDS)}: {brand_info['name']}")
             logger.info(f"{'='*60}")
-
+            
             products = self.scrape_brand(brand_info, seen_ids)
             all_products.extend(products)
-
+            
             self.stats['total_products'] = len(all_products)
-            self.stats['unique_products'] = len(seen_ids)
-
+            self.stats['unique_ids'] = len(seen_ids)
+            
             # Прогрес
             elapsed = (datetime.now() - start_time).total_seconds() / 60
             speed = len(all_products) / elapsed if elapsed > 0 else 0
             brands_left = len(self.BRANDS) - idx
             eta = (brands_left * elapsed / idx) if idx > 0 else 0
-
+            
             logger.info(f"\n{'='*60}")
             logger.info(f"📊 OVERALL PROGRESS")
             logger.info(f"{'='*60}")
             logger.info(f"Brands: {idx}/{len(self.BRANDS)} ({idx/len(self.BRANDS)*100:.1f}%)")
-            logger.info(f"Products: {len(all_products)} ({len(seen_ids)} unique)")
+            logger.info(f"Products: {len(all_products)} ({len(seen_ids)} unique IDs)")
+            logger.info(f"Duplicates: {self.stats['duplicate_ids']}")
             logger.info(f"Speed: {speed:.1f} products/min")
             logger.info(f"Elapsed: {elapsed:.1f} min")
             logger.info(f"ETA: {eta:.1f} min")
             logger.info(f"Pages: {self.stats['pages_processed']}")
             logger.info(f"Errors: {self.stats['errors']}")
+            logger.info(f"Timeouts: {self.stats['timeouts']}")
             logger.info(f"{'='*60}\n")
-
-            # Затримка між брендами
+            
             if idx < len(self.BRANDS):
                 time.sleep(3)
-
+        
         duration = (datetime.now() - start_time).total_seconds() / 60
-
+        
         logger.info("="*60)
         logger.info(f"✅ COMPLETED")
         logger.info(f"Products: {len(all_products)} ({len(seen_ids)} unique IDs)")
+        logger.info(f"Duplicates: {self.stats['duplicate_ids']}")
         logger.info(f"Brands: {self.stats['brands_processed']}")
         logger.info(f"Pages: {self.stats['pages_processed']}")
         logger.info(f"Time: {duration:.1f} minutes")
         logger.info(f"Speed: {len(all_products)/duration:.1f} products/min")
         logger.info(f"Errors: {self.stats['errors']}")
+        logger.info(f"Timeouts: {self.stats['timeouts']}")
         logger.info("="*60)
-
+        
         return all_products
     
     def get_stats(self) -> dict:
@@ -339,13 +344,19 @@ class EmmaMasonProductionScraper:
         return self.stats.copy()
 
 
-def scrape_emmamason_production(config: dict) -> List[Dict]:
+def scrape_emmamason_brands(config: dict) -> List[Dict]:
     """
-    Головна функція для production
-    Використовує curl_cffi підхід (БЕЗ Selenium!)
+    Головна функція для парсингу Emma Mason
+    
+    ✅ ВИКОРИСТОВУЄТЬСЯ В app/main.py:
+    from app.scrapers.emmamason_brands import scrape_emmamason_brands
+    results = scrape_emmamason_brands(config)
+    
+    Returns:
+        List[Dict]: [{id, url, price, brand}, ...]
     """
-    scraper = EmmaMasonProductionScraper(config)
-    results = scraper.scrape_all_products()
+    scraper = EmmaMasonBrandsScraper(config)
+    results = scraper.scrape_all_brands()
     return results
 
 
@@ -359,42 +370,29 @@ if __name__ == "__main__":
     )
     
     if not CURL_CFFI_AVAILABLE:
-        print("\n" + "="*60)
-        print("❌ curl_cffi NOT INSTALLED!")
-        print("="*60)
-        print("\nInstall it:")
-        print("  pip install curl-cffi")
-        print("\nWithout curl_cffi, scraper will fail with 403 Forbidden!")
-        print("="*60 + "\n")
-        exit(1)
+        print("\n⚠️ Warning: curl_cffi not installed!")
+        print("Install: pip install curl-cffi")
+        print("Continuing with standard requests (may fail)\n")
     
-    # Production config
     config = {
         'delay_min': 2.0,
         'delay_max': 4.0,
         'retry_attempts': 3,
-        'timeout': 30
+        'timeout': 45
     }
     
     print("\n" + "="*60)
-    print("PRODUCTION SCRAPER TEST (curl_cffi approach)")
+    print("ТЕСТ EMMA MASON BRANDS SCRAPER")
     print("="*60 + "\n")
     
-    results = scrape_emmamason_production(config)
+    results = scrape_emmamason_brands(config)
     
     print("\n" + "="*60)
-    print(f"RESULT: {len(results)} products")
+    print(f"РЕЗУЛЬТАТ: {len(results)} products")
     print("="*60)
     
     if results:
-        # Зберегти
-        output_file = f"emmamason_production_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
-        
-        print(f"\n✓ Saved: {output_file}")
-        
-        # Статистика
+        # Статистика по брендах
         brands = {}
         for p in results:
             brand = p['brand']
@@ -406,7 +404,7 @@ if __name__ == "__main__":
         
         print(f"\nSample (first 3):")
         for i, p in enumerate(results[:3], 1):
-            print(f"\n{i}. SKU: {p['sku']}")
+            print(f"\n{i}. ID: {p['id']}")
             print(f"   Brand: {p['brand']}")
             print(f"   Price: ${p.get('price', 'N/A')}")
             print(f"   URL: {p['url'][:60]}...")

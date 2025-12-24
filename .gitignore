@@ -4,6 +4,7 @@ based/
 *.bat
 test_*
 *.txt
+old_*
 
 # All JSON files (scraper results)
 *.json
