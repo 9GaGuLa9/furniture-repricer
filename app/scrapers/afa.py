@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Optional, Set
 from datetime import datetime
+from ..modules.error_logger import ScraperErrorMixin
 
 try:
     from curl_cffi import requests as curl_requests
@@ -26,7 +27,7 @@ except ImportError:
 logger = logging.getLogger("afa")
 
 
-class AFAScraper:
+class AFAScraper(ScraperErrorMixin):
     """Scraper для afastores.com через Shopify collections - category-based"""
 
     BASE_URL = "https://www.afastores.com"
@@ -43,8 +44,10 @@ class AFAScraper:
         "Westwood Design": "westwood-design"
     }
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, error_logger=None):
         self.config = config
+        self.error_logger = error_logger
+        self.scraper_name = "AFAScraper"
         self.delay_min = config.get('delay_min', 1.0)
         self.delay_max = config.get('delay_max', 2.0)
         self.retry_attempts = config.get('retry_attempts', 3)
@@ -380,51 +383,35 @@ class AFAScraper:
     
     def scrape_all_products(self) -> List[Dict[str, str]]:
         """Парсить всі товари від всіх виробників"""
-        logger.info("="*60)
-        logger.info(f"Starting AFA Stores scraping (method: {self.session_type})")
-        logger.info(f"Manufacturers: {list(self.MANUFACTURER_SLUGS.keys())}")
-        logger.info("="*60)
-
-        if self.session_type == 'requests':
-            logger.error("Neither curl_cffi nor cloudscraper available!")
-            logger.error("Install curl_cffi: pip install curl-cffi")
-            return []
-        
-        if not self.manufacturer_categories:
-            logger.error("No categories loaded! Check manufacturer_categories.json")
-            return []
         
         all_products = []
         seen_skus: Set[str] = set()
-        overall_start = datetime.now()
         
-        for manufacturer_name, manufacturer_slug in self.MANUFACTURER_SLUGS.items():
-            logger.info(f"\n{'#'*60}")
-            logger.info(f"# MANUFACTURER: {manufacturer_name}")
-            logger.info(f"{'#'*60}\n")
-            
-            products = self.scrape_manufacturer(manufacturer_name, manufacturer_slug, seen_skus)
-            all_products.extend(products)
-            
-            self.stats['total_products'] = len(all_products)
-            self.stats['unique_products'] = len(seen_skus)
-            
-            # Затримка між виробниками
-            time.sleep(3)
+        try:
+            for manufacturer_name, manufacturer_slug in self.MANUFACTURER_SLUGS.items():
+                try:
+                    products = self.scrape_manufacturer(
+                        manufacturer_name, 
+                        manufacturer_slug, 
+                        seen_skus
+                    )
+                    all_products.extend(products)
+                    
+                except Exception as e:
+                    # ✅ LOG ERROR
+                    self.log_scraping_error(
+                        error=e,
+                        context={'manufacturer': manufacturer_name}
+                    )
+                    logger.error(f"Failed {manufacturer_name}: {e}")
+                    continue
+                
+                time.sleep(3)
         
-        elapsed = (datetime.now() - overall_start).total_seconds() / 60
-        
-        logger.info("\n" + "="*60)
-        logger.info("✅ SCRAPING COMPLETED")
-        logger.info("="*60)
-        logger.info(f"Total time: {elapsed:.1f} minutes ({elapsed/60:.2f} hours)")
-        logger.info(f"Manufacturers processed: {self.stats['manufacturers_processed']}")
-        logger.info(f"Categories processed: {self.stats['categories_processed']}")
-        logger.info(f"Empty categories: {self.stats['empty_categories']}")
-        logger.info(f"Total products: {len(all_products)}")
-        logger.info(f"Unique SKUs: {len(seen_skus)}")
-        logger.info(f"Errors: {self.stats['errors']}")
-        logger.info("="*60)
+        except Exception as e:
+            # ✅ LOG GLOBAL ERROR
+            self.log_scraping_error(error=e, context={'stage': 'main'})
+            raise
         
         return all_products
     

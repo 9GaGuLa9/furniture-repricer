@@ -9,11 +9,12 @@ import time
 import logging
 from typing import List, Dict, Optional
 from datetime import datetime
+from ..modules.error_logger import ScraperErrorMixin
 
 logger = logging.getLogger("onestopbedrooms")
 
 
-class OneStopBedroomsScraper:
+class OneStopBedroomsScraper(ScraperErrorMixin):
     """Scraper для 1stopbedrooms.com - збирає по виробниках"""
     
     BASE_URL = "https://www.1stopbedrooms.com"
@@ -116,8 +117,10 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
 }
 """
     
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, error_logger=None):
         self.config = config
+        self.error_logger = error_logger
+        self.scraper_name = "OneStopBedroomsScraper"
         self.delay_min = config.get('delay_min', 1.0)
         self.delay_max = config.get('delay_max', 3.0)
         self.retry_attempts = config.get('retry_attempts', 3)
@@ -286,53 +289,32 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
         return brand_products
     
     def scrape_all_products(self) -> List[Dict[str, str]]:
-        """Парсить всі товари від цільових виробників"""
-        logger.info("="*60)
-        logger.info("Starting 1StopBedrooms scraping (brand-based)")
-        logger.info(f"Target brands: {[b['name'] for b in self.BRANDS]}")
-        logger.info("="*60)
+        """Парсить всі товари"""
         
         all_products = []
         seen_skus = set()
-        start_time = datetime.now()
         
-        for idx, brand_info in enumerate(self.BRANDS, 1):
-            logger.info(f"\n{'='*60}")
-            logger.info(f"📂 BRAND {idx}/{len(self.BRANDS)}: {brand_info['name']}")
-            logger.info(f"{'='*60}")
-            
-            products = self.scrape_brand(brand_info, seen_skus)
-            all_products.extend(products)
-            
-            # Загальний прогрес після кожного виробника
-            elapsed = (datetime.now() - start_time).total_seconds() / 60
-            speed = len(all_products) / elapsed if elapsed > 0 else 0
-            brands_left = len(self.BRANDS) - idx
-            eta = (brands_left * elapsed / idx) if idx > 0 else 0
-            
-            logger.info(f"\n{'='*60}")
-            logger.info(f"📊 OVERALL PROGRESS")
-            logger.info(f"{'='*60}")
-            logger.info(f"Brands: {idx}/{len(self.BRANDS)} ({idx/len(self.BRANDS)*100:.1f}%)")
-            logger.info(f"Total products: {len(all_products)} ({len(seen_skus)} unique)")
-            logger.info(f"Speed: {speed:.1f} products/min")
-            logger.info(f"Elapsed: {elapsed:.1f} min")
-            logger.info(f"ETA: {eta:.1f} min")
-            logger.info(f"Errors: {self.stats['errors']}")
-            logger.info(f"{'='*60}\n")
-            
-            self.stats['total_products'] = len(all_products)
-            self.stats['unique_products'] = len(seen_skus)
-            
-            # Затримка між виробниками
-            time.sleep(2)
+        try:
+            for idx, brand_info in enumerate(self.BRANDS, 1):
+                try:
+                    products = self.scrape_brand(brand_info, seen_skus)
+                    all_products.extend(products)
+                    
+                except Exception as e:
+                    # ✅ LOG ERROR
+                    self.log_scraping_error(
+                        error=e,
+                        context={'brand': brand_info['name']}
+                    )
+                    logger.error(f"Failed {brand_info['name']}: {e}")
+                    continue
+                
+                time.sleep(2)
         
-        logger.info("="*60)
-        logger.info(f"✅ COMPLETED: {len(all_products)} products from {len(seen_skus)} unique SKUs")
-        logger.info(f"Brands processed: {self.stats['brands_processed']}")
-        logger.info(f"Errors: {self.stats['errors']}")
-        logger.info(f"Total time: {(datetime.now() - start_time).total_seconds() / 60:.1f} minutes")
-        logger.info("="*60)
+        except Exception as e:
+            # ✅ LOG GLOBAL ERROR
+            self.log_scraping_error(error=e, context={'stage': 'main'})
+            raise
         
         return all_products
     

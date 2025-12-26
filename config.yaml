@@ -1,33 +1,122 @@
-# Furniture Repricer - Configuration (FULLY OPTIMIZED)
+# =====================================================
+# Furniture Repricer - Configuration File v5.0
+# =====================================================
+#
+# ВИКОРИСТАННЯ ConfigManager:
+# - Цей файл містить DEFAULTS
+# - Google Sheets "Config" може override будь-які параметри
+# - Priority: Google Sheets > config.yaml > hardcoded defaults
+#
+# =====================================================
 
+# =====================================================
+# GOOGLE SHEETS
+# =====================================================
 google_sheets:
-  spreadsheet_id: "1MVUjRr6295RLsM8m_lHjKRZ_mIyalcLPVWTNos1oOM4"
-  worksheet_name: "Data"
   credentials_file: "credentials/service_account.json"
-  
-  main_sheet:
-    id: "1MVUjRr6295RLsM8m_lHjKRZ_mIyalcLPVWTNos1oOM4"
-    gid: "264970813"
-    name: "Data"
 
+# Main sheet configuration
+main_sheet:
+  id: "1MVUjRr6295RLsM8m_lHjKRZ_mIyalcLPVWTNos1oOM4"
+  name: "Data"
+
+# =====================================================
+# SYSTEM
+# =====================================================
+run_enabled: true              # Автозапуск (TRUE/FALSE)
+test_mode: false               # Тестовий режим без реальних змін
+dry_run: false                 # Показати що буде зроблено без виконання
+log_level: "INFO"              # DEBUG/INFO/WARNING/ERROR
+verbose_logging: false         # Детальне логування для debugging
+
+# =====================================================
+# SCRAPERS CONTROL
+# =====================================================
+scraper_emmamason: true        # Scraping Emma Mason
+scraper_coleman: true          # Scraping Coleman Furniture
+scraper_onestopbedrooms: true  # Scraping 1StopBedrooms
+scraper_afastores: true        # Scraping AFA Stores
+
+# =====================================================
+# SCRAPING LIMITS
+# =====================================================
+max_products_emmamason: 5000          # Максимум товарів з Emma Mason (100-10000)
+max_products_per_competitor: 2000     # Максимум товарів з кожного конкурента (50-5000)
+scraping_timeout_minutes: 45          # Таймаут scraping у хвилинах (10-120)
+
+# =====================================================
+# EMMA MASON SPECIFIC
+# =====================================================
+emmamason_max_retries: 3       # Максимум повторів при помилках (1-10)
+
+# =====================================================
+# PRICING RULES
+# =====================================================
+enable_price_updates: true             # Чи оновлювати ціни взагалі
+update_only_with_competitors: false    # Оновлювати тільки якщо є конкуренти
+min_price_change_percent: 0.5          # Мінімальна зміна ціни для update у % (0-100)
+max_price_change_percent: 20           # Максимальна зміна ціни за раз у % (1-100)
+
+# Price calculation rules (може override з Google Sheets "Price_rules")
+price_rules:
+  floor_rate: 1.5              # Мінімальна ціна = Our Cost * 1.5
+  below_competitor: 1.0        # На $1 нижче конкурента
+  max_rate: 2.0                # Максимальна ціна = Our Cost * 2.0
+
+# =====================================================
+# DATA & HISTORY
+# =====================================================
+enable_price_history: true             # Записувати історію змін цін
+enable_competitors_sheet: true         # Оновлювати аркуш Competitors
+save_scraping_errors: true             # Зберігати помилки scraping
+
+# =====================================================
+# VALIDATION
+# =====================================================
+validate_prices_range: true    # Перевіряти діапазон цін
+min_valid_price: 10            # Мінімальна валідна ціна у $ (1-1000)
+max_valid_price: 50000         # Максимальна валідна ціна у $ (100-100000)
+reject_zero_prices: true       # Відхиляти нульові ціни
+
+# =====================================================
+# PERFORMANCE
+# =====================================================
+batch_size_sheets_update: 500  # Розмір batch для Google Sheets (100-1000)
+max_concurrent_requests: 5     # Максимум паралельних запитів (1-20)
+retry_on_rate_limit: true      # Повторювати при rate limit
+rate_limit_delay_seconds: 60   # Затримка при rate limit у секундах (30-300)
+
+# =====================================================
+# SCHEDULE
+# =====================================================
+schedule_enabled: false                # Увімкнути розклад автозапуску
+schedule_times: "06:00,16:00,21:00"    # Час запуску через кому (HH:MM,HH:MM)
+schedule_timezone: "America/New_York"  # Часовий пояс
+
+# =====================================================
+# NOTIFICATIONS
+# =====================================================
+telegram_enabled: false        # Надсилати Telegram повідомлення
+telegram_on_errors_only: false # Тільки при помилках
+telegram_chat_id: ""           # ID чату Telegram (числове значення)
+telegram_bot_token: ""         # Token бота (з environment або тут)
+
+# =====================================================
+# TESTING & DEBUG
+# =====================================================
+test_sample_size: 100          # Кількість товарів для тесту (10-1000)
+
+# =====================================================
+# SCRAPERS (детальні налаштування)
+# =====================================================
 scrapers:
-  # Emma Mason - ВИМКНЕНО (блокування по країні):
   emmamason:
-    enabled: true 
+    enabled: true
     delay_min: 2.0
     delay_max: 5.0
     retry_attempts: 3
     timeout: 45
   
-  # 1StopBedrooms - GraphQL API
-  onestopbedrooms:
-    enabled: true
-    delay_min: 1.0
-    delay_max: 3.0
-    retry_attempts: 3
-    timeout: 20
-  
-  # Coleman - Manufacturer API
   coleman:
     enabled: true
     delay_min: 0.5
@@ -35,47 +124,62 @@ scrapers:
     retry_attempts: 3
     timeout: 20
   
-  # AFA - Shopify API + Vendor Filtering
+  onestopbedrooms:
+    enabled: true
+    delay_min: 1.0
+    delay_max: 3.0
+    retry_attempts: 3
+    timeout: 20
+  
   afa:
-    enabled: true           
+    enabled: true
     delay_min: 1.0
     delay_max: 2.0
     retry_attempts: 3
     timeout: 30
 
-# Pricing формула
-pricing:
-  coefficients:
-    floor: 1.5              # Мінімум = Cost × 1.5
-    below_lowest: 1.0       # Suggest = Lowest - $1
-    max: 2.0                # Максимум = Cost × 2.0
-
-# SKU matching - "exact" ТІЛЬКИ ТОЧНИЙ ЗБІГ; "fuzzy" м`яке порівняння
+# =====================================================
+# SKU MATCHING
+# =====================================================
 sku_matching:
-  split_delimiter: ";"
-  case_sensitive: false
-  strategy: "exact"         # Без brand fallback
-  # strategy: "fuzzy"  # Замість "exact"
-  # fuzzy_threshold: 0.85
+  split_delimiter: ";"     # Розділювач для multiple SKU
+  case_sensitive: false    # Чутливість до регістру
+  strategy: "exact"        # "exact" або "fuzzy"
+  fuzzy_threshold: 0.85    # Поріг для fuzzy matching (0-1)
 
-# Telegram (опціонально)
-telegram:
-  enabled: false
-  bot_token: "${TELEGRAM_BOT_TOKEN}"
-  chat_id: "${TELEGRAM_CHAT_ID}"
-
-# Logging
+# =====================================================
+# LOGGING
+# =====================================================
 logging:
-  level: "INFO"
-  console:
-    enabled: true
-  files:
-    enabled: true
-    directory: "./logs"
+  level: "INFO"            # DEBUG/INFO/WARNING/ERROR
+  directory: "logs"
+  format: "%(asctime)s | %(name)-15s | %(levelname)-8s | %(funcName)-20s | %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
 
-# Development/Testing
-development:
-  test_mode: false          # true для --test режиму
-  test_limit: 10            # Кількість товарів у --test
-  debug:
-    dry_run: false          # true = не записувати в Sheets
+# =====================================================
+# ВАЖЛИВІ ПРИМІТКИ
+# =====================================================
+#
+# 1. OVERRIDE через Google Sheets:
+#    Створіть аркуш "Config" з колонками:
+#    | Parameter | Value | Description |
+#    Будь-який параметр з цього файлу можна override!
+#
+# 2. Price Rules:
+#    Створіть аркуш "Price_rules" з колонками:
+#    | Parameter                  | Value |
+#    | Floor (rate)               | 1.5   |
+#    | Below Lowest Competitor($) | 1     |
+#    | Max (rate)                 | 2     |
+#
+# 3. Приклад override в Google Sheets:
+#    test_mode | TRUE | Тестовий режим
+#    max_products_emmamason | 100 | Обмежити для тесту
+#
+# 4. Log Level:
+#    DEBUG - все (для розробки)
+#    INFO - нормальна робота
+#    WARNING - тільки попередження
+#    ERROR - тільки помилки
+#
+# =====================================================

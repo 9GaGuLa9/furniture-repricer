@@ -1,27 +1,73 @@
+# Furniture Repricer - Requirements
+# Updated with Scheduler support
+
 # Core dependencies
+gspread==5.12.0
+google-auth==2.23.4
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+
+# Web scraping
 requests==2.31.0
 beautifulsoup4==4.12.2
-lxml==5.1.0
+lxml==4.9.3
 
-# Cloudflare bypass
-cloudscraper==1.2.71
-curl-cffi==0.6.2
+# Cloudflare bypass (choose one or both)
+curl-cffi==0.6.2         # Recommended for best results
+cloudscraper==1.2.71     # Fallback option
 
-# Configuration
+# Data processing
+pandas==2.1.3
+openpyxl==3.1.2          # For Excel file operations
+python-docx==1.1.0       # For Word documents
+
+# YAML config
 PyYAML==6.0.1
-python-dotenv==1.0.0
 
-# Google Sheets
-google-auth==2.27.0
-google-auth-oauthlib==1.2.0
-gspread==5.12.4
+# ✅ NEW: Scheduler dependencies
+schedule==1.2.0          # Job scheduling
+pytz==2024.1             # Timezone support
 
-# Telegram (optional)
-python-telegram-bot==20.7
+# Optional: Telegram notifications
+# python-telegram-bot==20.7  # Uncomment if using Telegram
 
-# Excel
-openpyxl==3.1.2
+# Development/Testing
+# pytest==7.4.3
+# pytest-cov==4.1.0
 
-# Utilities
-pytz==2023.3
-python-dateutil==2.8.2
+# ============================================================
+# INSTALLATION NOTES:
+# ============================================================
+#
+# Basic installation:
+#   pip install -r requirements.txt
+#
+# With virtual environment (recommended):
+#   python -m venv venv
+#   source venv/bin/activate  # Linux/Mac
+#   venv\Scripts\activate     # Windows
+#   pip install -r requirements.txt
+#
+# Upgrade all packages:
+#   pip install -r requirements.txt --upgrade
+#
+# Cloudflare bypass:
+#   - curl-cffi: Best for Cloudflare (recommended)
+#   - cloudscraper: Fallback if curl-cffi fails
+#   - Both can be installed together
+#
+# Scheduler:
+#   - schedule: Required for automatic scheduling
+#   - pytz: Required for timezone support
+#
+# ============================================================
+# VERIFICATION:
+# ============================================================
+#
+# Check all dependencies installed:
+#   pip list
+#
+# Test imports:
+#   python -c "import gspread, schedule, pytz; print('OK')"
+#
+# ============================================================

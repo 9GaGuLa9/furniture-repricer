@@ -1,6 +1,6 @@
 """
-Simple Logger Module для Furniture Repricer
-WITH FILE LOGGING! ✅
+Logger Module для Furniture Repricer
+FIXED VERSION v2.0 - з підтримкою log_level parameter
 """
 
 import logging
@@ -24,7 +24,7 @@ def get_logger(name: str = "repricer", log_to_file: bool = True) -> logging.Logg
     
     # Налаштувати тільки якщо ще не налаштовано
     if not logger.handlers:
-        logger.setLevel(logging.INFO)
+        logger.setLevel(logging.DEBUG)  # Logger сам приймає все
         
         # Formatter (один для всіх handlers)
         formatter = logging.Formatter(
@@ -32,30 +32,23 @@ def get_logger(name: str = "repricer", log_to_file: bool = True) -> logging.Logg
             datefmt='%H:%M:%S'
         )
         
-        # ═══════════════════════════════════════════════════════════════
-        # 1. Console handler (як було)
-        # ═══════════════════════════════════════════════════════════════
+        # Console handler
         console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
+        console_handler.setLevel(logging.INFO)  # За замовчуванням INFO
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
         
-        # ═══════════════════════════════════════════════════════════════
-        # 2. File handler (НОВИЙ!) ✅
-        # ═══════════════════════════════════════════════════════════════
+        # File handler
         if log_to_file:
             try:
-                # Створити директорію logs/
                 log_dir = Path(__file__).parent.parent.parent / "logs"
                 log_dir.mkdir(exist_ok=True)
                 
-                # Файл з датою: logs/repricer_2024-12-19.log
                 log_file = log_dir / f"repricer_{datetime.now().strftime('%Y-%m-%d')}.log"
                 
                 file_handler = logging.FileHandler(log_file, encoding='utf-8')
-                file_handler.setLevel(logging.DEBUG)  # В файл пишемо все (включно DEBUG)
+                file_handler.setLevel(logging.DEBUG)  # В файл пишемо все
                 
-                # Детальніший formatter для файлу
                 file_formatter = logging.Formatter(
                     '%(asctime)s | %(name)-15s | %(levelname)-8s | %(funcName)-20s | %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S'
@@ -63,30 +56,84 @@ def get_logger(name: str = "repricer", log_to_file: bool = True) -> logging.Logg
                 file_handler.setFormatter(file_formatter)
                 logger.addHandler(file_handler)
                 
-                # Перший лог - інформація про файл
                 logger.debug(f"Logging to file: {log_file}")
             except Exception as e:
-                # Якщо не вдалось створити file handler - продовжуємо з console
                 print(f"Warning: Could not setup file logging: {e}", file=sys.stderr)
     
     return logger
 
 
-def setup_logging(config: dict = None) -> logging.Logger:
+def setup_logging(
+    log_dir: str = 'logs',
+    log_format: str = None,
+    date_format: str = None,
+    level: str = 'INFO'  # ✅ НОВИЙ ПАРАМЕТР!
+) -> logging.Logger:
     """
-    Налаштувати головний логgер
+    Налаштувати головний logger
+    
+    ✅ FIXED v2.0: Підтримка log_level parameter!
     
     Args:
-        config: Конфігурація логування (опціонально)
+        log_dir: Директорія для логів
+        log_format: Формат логування
+        date_format: Формат дати
+        level: Рівень логування ('DEBUG', 'INFO', 'WARNING', 'ERROR')
     
     Returns:
         Logger instance
     """
-    log_to_file = True
-    if config:
-        log_to_file = config.get('files', {}).get('enabled', True)
+    # Конвертувати string level в logging constant
+    numeric_level = getattr(logging, level.upper(), logging.INFO)
     
-    return get_logger("repricer", log_to_file=log_to_file)
+    # Створити logger
+    logger = logging.getLogger("repricer")
+    logger.setLevel(logging.DEBUG)  # Logger сам приймає все
+    
+    # Видалити існуючі handlers якщо є
+    logger.handlers.clear()
+    
+    # Формат
+    if not log_format:
+        log_format = '%(asctime)s | %(name)-12s | %(levelname)-8s | %(message)s'
+    if not date_format:
+        date_format = '%H:%M:%S'
+    
+    formatter = logging.Formatter(log_format, datefmt=date_format)
+    
+    # ═══════════════════════════════════════════════════════════════
+    # Console handler з вказаним level
+    # ═══════════════════════════════════════════════════════════════
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(numeric_level)  # ✅ Використати parameter!
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    # ═══════════════════════════════════════════════════════════════
+    # File handler (завжди DEBUG)
+    # ═══════════════════════════════════════════════════════════════
+    try:
+        log_path = Path(log_dir)
+        log_path.mkdir(exist_ok=True)
+        
+        log_file = log_path / f"repricer_{datetime.now().strftime('%Y-%m-%d')}.log"
+        
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)  # Файл завжди детальний
+        
+        file_formatter = logging.Formatter(
+            '%(asctime)s | %(name)-15s | %(levelname)-8s | %(funcName)-20s | %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+        
+        logger.debug(f"Logging to file: {log_file}")
+        logger.debug(f"Console log level: {level}")
+    except Exception as e:
+        print(f"Warning: Could not setup file logging: {e}", file=sys.stderr)
+    
+    return logger
 
 
 class LogBlock:
@@ -98,13 +145,11 @@ class LogBlock:
         self.start_time = None
     
     def __enter__(self):
-        from datetime import datetime
         self.start_time = datetime.now()
         self.logger.info(f"Starting: {self.name}")
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        from datetime import datetime
         duration = (datetime.now() - self.start_time).total_seconds()
         
         if exc_type is None:
@@ -117,36 +162,51 @@ class LogBlock:
 
 if __name__ == "__main__":
     # Тестування
-    print("Testing logger with file output...")
+    print("Testing logger with log_level support...")
     print()
     
-    logger = get_logger("test")
-    logger.info("Info message - console AND file")
-    logger.warning("Warning message")
-    logger.error("Error message")
-    logger.debug("Debug message - ONLY in file")
-    
-    with LogBlock("Test operation", logger):
-        logger.info("Doing some work...")
-        import time
-        time.sleep(0.5)
+    # Тест 1: INFO level (default)
+    print("=" * 60)
+    print("TEST 1: INFO level (default)")
+    print("=" * 60)
+    logger1 = setup_logging(level='INFO')
+    logger1.debug("This is DEBUG - should NOT appear in console")
+    logger1.info("This is INFO - should appear")
+    logger1.warning("This is WARNING - should appear")
     
     print()
-    print("✅ Logger test completed!")
+    
+    # Тест 2: DEBUG level
+    print("=" * 60)
+    print("TEST 2: DEBUG level")
+    print("=" * 60)
+    logger2 = setup_logging(level='DEBUG')
+    logger2.debug("This is DEBUG - should appear now!")
+    logger2.info("This is INFO")
+    
     print()
+    
+    # Тест 3: WARNING level
+    print("=" * 60)
+    print("TEST 3: WARNING level")
+    print("=" * 60)
+    logger3 = setup_logging(level='WARNING')
+    logger3.info("This is INFO - should NOT appear")
+    logger3.warning("This is WARNING - should appear")
+    logger3.error("This is ERROR - should appear")
+    
+    print()
+    print("✅ Logger tests completed!")
     
     # Показати де файл
     log_dir = Path(__file__).parent.parent.parent / "logs"
     log_file = log_dir / f"repricer_{datetime.now().strftime('%Y-%m-%d')}.log"
     
     if log_file.exists():
-        print(f"📝 Log file created: {log_file}")
-        print()
-        print("Last 10 lines:")
+        print(f"\n📝 Log file: {log_file}")
+        print("\nLast 10 lines:")
         print("-" * 60)
         with open(log_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             for line in lines[-10:]:
                 print(line.rstrip())
-    else:
-        print(f"❌ Log file not found: {log_file}")

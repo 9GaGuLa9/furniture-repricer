@@ -8,12 +8,11 @@ import time
 import logging
 from typing import List, Dict, Optional
 from datetime import datetime
-from ..modules.error_logger import ScraperErrorMixin
 
 logger = logging.getLogger("coleman")
 
 
-class ColemanScraper(ScraperErrorMixin):
+class ColemanScraper:
     """Scraper для colemanfurniture.com - Тільки 3 виробників"""
     
     BASE_URL = "https://colemanfurniture.com"
@@ -29,10 +28,8 @@ class ColemanScraper(ScraperErrorMixin):
         "ACME": 185,
     }
     
-    def __init__(self, config: dict, error_logger=None):
+    def __init__(self, config: dict):
         self.config = config
-        self.error_logger = error_logger
-        self.scraper_name = "ColemanScraper"
         self.delay_min = config.get('delay_min', 0.5)
         self.delay_max = config.get('delay_max', 2.0)
         self.retry_attempts = config.get('retry_attempts', 3)
@@ -117,144 +114,123 @@ class ColemanScraper(ScraperErrorMixin):
     def scrape_manufacturer(self, manufacturer_name: str, manufacturer_id: int, 
                             seen_skus: set) -> List[Dict[str, str]]:
         """Парсить всі товари виробника"""
+        logger.info(f"Processing manufacturer: {manufacturer_name} (ID: {manufacturer_id})")
+        
+        manufacturer_products = []
+        page = 1
+        
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            "Referer": f"{self.BASE_URL}/martin-furniture.html"
+        }
+        
+        # Перший запит щоб дізнатись кількість сторінок
+        url = f"{self.BASE_URL}/manufacturer/detail/{manufacturer_id}"
+        params = {
+            "order": "recommended",
+            "p": 1,
+            "storeid": 1
+        }
+        
+        data = self._safe_request(url, params, headers)
+        if not data or "data" not in data:
+            logger.error(f"Failed to get data for {manufacturer_name}")
+            return []
+        
+        # Отримати інфо про пагінацію
         try:
-            logger.info(f"Processing manufacturer: {manufacturer_name} (ID: {manufacturer_id})")
+            content = data["data"]["content"]
+            pager = content.get("pager", {})
             
-            manufacturer_products = []
-            page = 1
+            max_page = pager.get("total", 1)
+            items_count = pager.get("items", 0)
             
-            headers = {
-                "Accept": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-                "Referer": f"{self.BASE_URL}/martin-furniture.html"
-            }
+            logger.info(f"Manufacturer {manufacturer_name}: {items_count} items, {max_page} pages")
             
-            # Перший запит щоб дізнатись кількість сторінок
-            url = f"{self.BASE_URL}/manufacturer/detail/{manufacturer_id}"
-            params = {
-                "order": "recommended",
-                "p": 1,
-                "storeid": 1
-            }
+            # Витягти товари з першої сторінки
+            products_data = content.get("products", [])
+            products = self._extract_products(products_data, manufacturer_name)
+            
+            # Додати тільки унікальні SKU
+            for product in products:
+                sku = product["sku"]
+                if sku not in seen_skus:
+                    seen_skus.add(sku)
+                    manufacturer_products.append(product)
+            
+            logger.info(f"  Page 1/{max_page}: found {len(products)} products")
+            
+        except KeyError as e:
+            logger.error(f"Missing data in response: {e}")
+            return []
+        
+        # Парсимо решту сторінок (якщо є)
+        for page in range(2, max_page + 1):
+            params["p"] = page
             
             data = self._safe_request(url, params, headers)
-            if not data or "data" not in data:
-                logger.error(f"Failed to get data for {manufacturer_name}")
-                return []
+            if not data:
+                logger.warning(f"Failed to load page {page}, skipping...")
+                continue
             
-            # Отримати інфо про пагінацію
             try:
-                content = data["data"]["content"]
-                pager = content.get("pager", {})
-                
-                max_page = pager.get("total", 1)
-                items_count = pager.get("items", 0)
-                
-                logger.info(f"Manufacturer {manufacturer_name}: {items_count} items, {max_page} pages")
-                
-                # Витягти товари з першої сторінки
-                products_data = content.get("products", [])
+                products_data = data["data"]["content"]["products"]
                 products = self._extract_products(products_data, manufacturer_name)
                 
                 # Додати тільки унікальні SKU
+                new_count = 0
                 for product in products:
                     sku = product["sku"]
                     if sku not in seen_skus:
                         seen_skus.add(sku)
                         manufacturer_products.append(product)
+                        new_count += 1
                 
-                logger.info(f"  Page 1/{max_page}: found {len(products)} products")
+                logger.info(f"  Page {page}/{max_page}: found {new_count} new products (total: {len(manufacturer_products)})")
                 
             except KeyError as e:
-                logger.error(f"Missing data in response: {e}")
-                return []
+                logger.error(f"Missing data on page {page}: {e}")
+                continue
             
-            # Парсимо решту сторінок (якщо є)
-            for page in range(2, max_page + 1):
-                params["p"] = page
-                
-                data = self._safe_request(url, params, headers)
-                if not data:
-                    logger.warning(f"Failed to load page {page}, skipping...")
-                    continue
-                
-                try:
-                    products_data = data["data"]["content"]["products"]
-                    products = self._extract_products(products_data, manufacturer_name)
-                    
-                    # Додати тільки унікальні SKU
-                    new_count = 0
-                    for product in products:
-                        sku = product["sku"]
-                        if sku not in seen_skus:
-                            seen_skus.add(sku)
-                            manufacturer_products.append(product)
-                            new_count += 1
-                    
-                    logger.info(f"  Page {page}/{max_page}: found {new_count} new products (total: {len(manufacturer_products)})")
-                    
-                except KeyError as e:
-                    logger.error(f"Missing data on page {page}: {e}")
-                    continue
-                
-                # Затримка між сторінками
-                if page < max_page:
-                    self._random_delay()
-            
-            logger.info(f"Manufacturer {manufacturer_name}: collected {len(manufacturer_products)} unique products")
-            self.stats['manufacturers_processed'] += 1
-            
-            return manufacturer_products
-
-        except Exception as e:
-            # ✅ ДОДАТИ: Log error з context
-            self.log_scraping_error(
-                error=e,
-                context={
-                    'manufacturer': manufacturer_name,
-                    'products_scraped': len(products)
-                }
-            )
-            # Можна продовжити з наступним manufacturer
-            logger.error(f"Failed to scrape {manufacturer_name}: {e}")
-
+            # Затримка між сторінками
+            if page < max_page:
+                self._random_delay()
+        
+        logger.info(f"Manufacturer {manufacturer_name}: collected {len(manufacturer_products)} unique products")
+        self.stats['manufacturers_processed'] += 1
+        
+        return manufacturer_products
+    
     def scrape_all_products(self) -> List[Dict[str, str]]:
         """Парсить всі товари з 3 виробників"""
-        try:
-            logger.info("="*60)
-            logger.info("Starting Coleman Furniture scraping")
-            logger.info(f"Manufacturers: {list(self.MANUFACTURERS.keys())}")
-            logger.info("="*60)
+        logger.info("="*60)
+        logger.info("Starting Coleman Furniture scraping")
+        logger.info(f"Manufacturers: {list(self.MANUFACTURERS.keys())}")
+        logger.info("="*60)
+        
+        all_products = []
+        seen_skus = set()
+        
+        for manufacturer_name, manufacturer_id in self.MANUFACTURERS.items():
+            logger.info(f"\nProcessing: {manufacturer_name}")
             
-            all_products = []
-            seen_skus = set()
+            products = self.scrape_manufacturer(manufacturer_name, manufacturer_id, seen_skus)
+            all_products.extend(products)
             
-            for manufacturer_name, manufacturer_id in self.MANUFACTURERS.items():
-                logger.info(f"\nProcessing: {manufacturer_name}")
-                
-                products = self.scrape_manufacturer(manufacturer_name, manufacturer_id, seen_skus)
-                all_products.extend(products)
-                
-                self.stats['total_products'] = len(all_products)
-                self.stats['unique_products'] = len(seen_skus)
-                
-                # Затримка між виробниками
-                time.sleep(2)
+            self.stats['total_products'] = len(all_products)
+            self.stats['unique_products'] = len(seen_skus)
             
-            logger.info("="*60)
-            logger.info(f"Completed: {len(all_products)} products from {len(seen_skus)} unique SKUs")
-            logger.info(f"Manufacturers processed: {self.stats['manufacturers_processed']}")
-            logger.info(f"Errors: {self.stats['errors']}")
-            logger.info("="*60)
-            
-            return all_products
-        except Exception as e:
-            # ✅ ДОДАТИ: Log error
-            self.log_scraping_error(
-                error=e,
-                context={'stage': 'main_scraping'}
-            )
-            raise  # Re-raise щоб main.py знав про помилку
+            # Затримка між виробниками
+            time.sleep(2)
+        
+        logger.info("="*60)
+        logger.info(f"Completed: {len(all_products)} products from {len(seen_skus)} unique SKUs")
+        logger.info(f"Manufacturers processed: {self.stats['manufacturers_processed']}")
+        logger.info(f"Errors: {self.stats['errors']}")
+        logger.info("="*60)
+        
+        return all_products
     
     def get_stats(self) -> dict:
         """Повертає статистику"""

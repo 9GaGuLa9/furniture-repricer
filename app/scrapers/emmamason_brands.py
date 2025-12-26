@@ -16,6 +16,7 @@ import logging
 from typing import List, Dict, Optional, Set
 from datetime import datetime
 from bs4 import BeautifulSoup
+from ..modules.error_logger import ScraperErrorMixin
 
 # Спробувати імпортувати curl_cffi
 try:
@@ -29,7 +30,7 @@ except ImportError:
 logger = logging.getLogger("emmamason_brands")
 
 
-class EmmaMasonBrandsScraper:
+class EmmaMasonBrandsScraper(ScraperErrorMixin):
     """Scraper для emmamason.com - збирає по брендах"""
     
     BASE_URL = "https://emmamason.com"
@@ -50,8 +51,10 @@ class EmmaMasonBrandsScraper:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     ]
     
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, error_logger=None):
         self.config = config
+        self.error_logger = error_logger
+        self.scraper_name = "EmmaMasonScraper"
         self.delay_min = config.get('delay_min', 2.0)
         self.delay_max = config.get('delay_max', 4.0)
         self.retry_attempts = config.get('retry_attempts', 3)
@@ -335,67 +338,32 @@ class EmmaMasonBrandsScraper:
         return brand_products
     
     def scrape_all_brands(self) -> List[Dict]:
-        """
-        Парсити всі бренди
-        """
-        logger.info("="*60)
-        logger.info("Starting brand-based scraping")
-        logger.info(f"Brands: {[b['name'] for b in self.BRANDS]}")
-        logger.info("="*60)
+        """Парсити всі бренди"""
         
         all_products = []
         seen_ids = set()
-        start_time = datetime.now()
         
-        for idx, brand_info in enumerate(self.BRANDS, 1):
-            logger.info(f"\n{'='*60}")
-            logger.info(f"📂 BRAND {idx}/{len(self.BRANDS)}: {brand_info['name']}")
-            logger.info(f"{'='*60}")
-            
-            products = self.scrape_brand(brand_info, seen_ids)
-            all_products.extend(products)
-            
-            self.stats['total_products'] = len(all_products)
-            self.stats['unique_ids'] = len(seen_ids)
-            
-            # Прогрес
-            elapsed = (datetime.now() - start_time).total_seconds() / 60
-            speed = len(all_products) / elapsed if elapsed > 0 else 0
-            brands_left = len(self.BRANDS) - idx
-            eta = (brands_left * elapsed / idx) if idx > 0 else 0
-            
-            logger.info(f"\n{'='*60}")
-            logger.info(f"📊 OVERALL PROGRESS")
-            logger.info(f"{'='*60}")
-            logger.info(f"Brands: {idx}/{len(self.BRANDS)} ({idx/len(self.BRANDS)*100:.1f}%)")
-            logger.info(f"Products: {len(all_products)} ({len(seen_ids)} unique IDs)")
-            logger.info(f"Duplicates: {self.stats['duplicate_ids']}")
-            logger.info(f"Speed: {speed:.1f} products/min")
-            logger.info(f"Elapsed: {elapsed:.1f} min")
-            logger.info(f"ETA: {eta:.1f} min")
-            logger.info(f"Pages: {self.stats['pages_processed']}")
-            logger.info(f"Errors: {self.stats['errors']}")
-            logger.info(f"Timeouts: {self.stats['timeouts']}")
-            logger.info(f"Price errors: {self.stats['price_conversion_errors']}")
-            logger.info(f"{'='*60}\n")
-            
-            if idx < len(self.BRANDS):
+        try:
+            for idx, brand_info in enumerate(self.BRANDS, 1):
+                try:
+                    products = self.scrape_brand(brand_info, seen_ids)
+                    all_products.extend(products)
+                    
+                except Exception as e:
+                    # ✅ LOG ERROR
+                    self.log_scraping_error(
+                        error=e,
+                        context={'brand': brand_info['name']}
+                    )
+                    logger.error(f"Failed {brand_info['name']}: {e}")
+                    continue
+                
                 time.sleep(3)
         
-        duration = (datetime.now() - start_time).total_seconds() / 60
-        
-        logger.info("="*60)
-        logger.info(f"✅ COMPLETED")
-        logger.info(f"Products: {len(all_products)} ({len(seen_ids)} unique IDs)")
-        logger.info(f"Duplicates: {self.stats['duplicate_ids']}")
-        logger.info(f"Brands: {self.stats['brands_processed']}")
-        logger.info(f"Pages: {self.stats['pages_processed']}")
-        logger.info(f"Time: {duration:.1f} minutes")
-        logger.info(f"Speed: {len(all_products)/duration:.1f} products/min")
-        logger.info(f"Errors: {self.stats['errors']}")
-        logger.info(f"Timeouts: {self.stats['timeouts']}")
-        logger.info(f"Price conversion errors: {self.stats['price_conversion_errors']}")
-        logger.info("="*60)
+        except Exception as e:
+            # ✅ LOG GLOBAL ERROR
+            self.log_scraping_error(error=e, context={'stage': 'main'})
+            raise
         
         return all_products
     
