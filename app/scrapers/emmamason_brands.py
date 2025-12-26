@@ -1,6 +1,8 @@
 """
-Emma Mason Brands Scraper - PRODUCTION INTEGRATED VERSION
-100% сумісний з app/main.py та app/modules/google_sheets.py
+Emma Mason Brands Scraper - FIXED VERSION v2.0
+✅ FIXED: Price parsing - converts "887,84" → 887.84 (comma to dot)
+✅ URL consistency for matching
+✅ Error handling for price conversion
 
 МЕХАНІЗМ:
 1. Збирає товари з брендів → структура {id, url, price}
@@ -63,7 +65,8 @@ class EmmaMasonBrandsScraper:
             'brands_processed': 0,
             'pages_processed': 0,
             'errors': 0,
-            'timeouts': 0
+            'timeouts': 0,
+            'price_conversion_errors': 0  # ✅ NEW
         }
         
         if not CURL_CFFI_AVAILABLE:
@@ -72,7 +75,7 @@ class EmmaMasonBrandsScraper:
             logger.info("✓ curl_cffi available")
         
         logger.info("="*60)
-        logger.info("Emma Mason Brands Scraper")
+        logger.info("Emma Mason Brands Scraper v2.0")
         logger.info("="*60)
     
     def _random_delay(self):
@@ -139,6 +142,65 @@ class EmmaMasonBrandsScraper:
         self.stats['errors'] += 1
         return None
     
+    def _parse_price(self, price_text: str) -> Optional[str]:
+        """
+        ✅ CRITICAL FIX: Правильно парсити ціну
+        
+        Emma Mason може повертати:
+        - "$887.84" (крапка) - ОК
+        - "$887,84" (кома) - треба замінити на крапку!
+        - "887,84" (без $, з комою)
+        - "887.84" (без $, з крапкою)
+        
+        Returns:
+            String з ціною у форматі "887.84" або None
+        """
+        if not price_text:
+            return None
+        
+        try:
+            # Видалити $, пробіли
+            cleaned = price_text.replace('$', '').replace(' ', '').strip()
+            
+            if not cleaned:
+                return None
+            
+            # ✅ КЛЮЧОВИЙ МОМЕНТ: Визначити роздільник
+            # Якщо є кома і НЕМАЄ крапки - це європейський формат
+            if ',' in cleaned and '.' not in cleaned:
+                # "887,84" → "887.84"
+                cleaned = cleaned.replace(',', '.')
+                logger.debug(f"Converted comma price: {price_text} → {cleaned}")
+            
+            elif ',' in cleaned and '.' in cleaned:
+                # Якщо є обидва - залежить від позиції
+                # "1,234.56" - кома для тисяч, крапка для десяткових
+                # "1.234,56" - крапка для тисяч, кома для десяткових
+                
+                comma_pos = cleaned.index(',')
+                dot_pos = cleaned.index('.')
+                
+                if dot_pos > comma_pos:
+                    # "1,234.56" - американський формат, видалити кому
+                    cleaned = cleaned.replace(',', '')
+                else:
+                    # "1.234,56" - європейський формат
+                    cleaned = cleaned.replace('.', '').replace(',', '.')
+            
+            # Спробувати конвертувати щоб перевірити
+            try:
+                float(cleaned)
+                return cleaned
+            except ValueError:
+                logger.warning(f"Failed to parse price '{price_text}' → '{cleaned}'")
+                self.stats['price_conversion_errors'] += 1
+                return None
+                
+        except Exception as e:
+            logger.error(f"Price parsing error for '{price_text}': {e}")
+            self.stats['price_conversion_errors'] += 1
+            return None
+    
     def _extract_products_from_page(self, html: str, brand_name: str) -> List[Dict]:
         """
         Витягти товари зі сторінки бренду
@@ -147,7 +209,7 @@ class EmmaMasonBrandsScraper:
         {
             'id': product_id,     # ← Колонка R: ID from emmamason
             'url': url,           # ← Колонка F: Our URL (для пошуку)
-            'price': price,       # ← Колонка D: Our Sales Price
+            'price': price,       # ← Колонка D: Our Sales Price (FIXED)
             'brand': brand_name,  # Для статистики
         }
         """
@@ -175,23 +237,19 @@ class EmmaMasonBrandsScraper:
                     if not url:
                         continue
                     
-                    # Ціна
-                    price_elem = item.find('span', class_='price')
+                    # ✅ FIXED: Ціна з правильною обробкою коми
                     price = None
+                    price_elem = item.find('span', class_='price')
                     if price_elem:
                         price_text = price_elem.get_text(strip=True)
-                        price = price_text.replace('$', '').replace(',', '').strip()
-                        try:
-                            float(price)
-                        except:
-                            price = None
+                        price = self._parse_price(price_text)
                     
                     # ✅ СТРУКТУРА для Google Sheets integration
                     # ✅ КЛЮЧОВО: Поле 'id', НЕ 'product_id'!
                     products.append({
                         'id': product_id,           # ← ID from emmamason (R)
                         'url': url,                 # ← Our URL (F) для пошуку
-                        'price': price,             # ← Our Sales Price (D)
+                        'price': price,             # ← Our Sales Price (D) - FIXED!
                         'brand': brand_name,        # Для статистики
                         'scraped_at': datetime.now().isoformat()
                     })
@@ -318,6 +376,7 @@ class EmmaMasonBrandsScraper:
             logger.info(f"Pages: {self.stats['pages_processed']}")
             logger.info(f"Errors: {self.stats['errors']}")
             logger.info(f"Timeouts: {self.stats['timeouts']}")
+            logger.info(f"Price errors: {self.stats['price_conversion_errors']}")
             logger.info(f"{'='*60}\n")
             
             if idx < len(self.BRANDS):
@@ -335,6 +394,7 @@ class EmmaMasonBrandsScraper:
         logger.info(f"Speed: {len(all_products)/duration:.1f} products/min")
         logger.info(f"Errors: {self.stats['errors']}")
         logger.info(f"Timeouts: {self.stats['timeouts']}")
+        logger.info(f"Price conversion errors: {self.stats['price_conversion_errors']}")
         logger.info("="*60)
         
         return all_products
@@ -382,7 +442,7 @@ if __name__ == "__main__":
     }
     
     print("\n" + "="*60)
-    print("ТЕСТ EMMA MASON BRANDS SCRAPER")
+    print("ТЕСТ EMMA MASON BRANDS SCRAPER v2.0 (FIXED)")
     print("="*60 + "\n")
     
     results = scrape_emmamason_brands(config)
@@ -406,7 +466,7 @@ if __name__ == "__main__":
         for i, p in enumerate(results[:3], 1):
             print(f"\n{i}. ID: {p['id']}")
             print(f"   Brand: {p['brand']}")
-            print(f"   Price: ${p.get('price', 'N/A')}")
+            print(f"   Price: {p.get('price', 'N/A')}")
             print(f"   URL: {p['url'][:60]}...")
     else:
         print("\n❌ No products scraped")

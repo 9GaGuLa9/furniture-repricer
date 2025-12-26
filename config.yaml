@@ -13,11 +13,11 @@ google_sheets:
 scrapers:
   # Emma Mason - ВИМКНЕНО (блокування по країні):
   emmamason:
-    enabled: false 
+    enabled: true 
     delay_min: 2.0
     delay_max: 5.0
     retry_attempts: 3
-    timeout: 30
+    timeout: 45
   
   # 1StopBedrooms - GraphQL API
   onestopbedrooms:
