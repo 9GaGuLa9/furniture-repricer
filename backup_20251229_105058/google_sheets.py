@@ -795,8 +795,7 @@ class RepricerSheetsManager:
             for record in history_records:
                 old_price = record.get('old_price', 0)
                 new_price = record.get('new_price', 0)
-                # ✅ ВИПРАВЛЕННЯ: Завжди розраховувати change
-                change = new_price - old_price
+                change = new_price - old_price if old_price else 0
                 
                 row = [
                     timestamp,

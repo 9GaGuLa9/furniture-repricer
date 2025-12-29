@@ -499,28 +499,9 @@ class FurnitureRepricer:
                     product['suggested_price'] = suggested_price
             
             # Додати _prices_to_update
-            prices_dict = {
+            product['_prices_to_update'] = {
                 'suggest_price': suggested_price,
             }
-            
-            # ✅ КРИТИЧНО: Додати competitor дані якщо є!
-            # Без цього batch_update_all не може записати competitor ціни в стовпці G-L
-            if product.get('site1_price'):
-                prices_dict['site1_price'] = product.get('site1_price')
-                prices_dict['site1_url'] = product.get('site1_url', '')
-                prices_dict['site1_sku'] = product.get('site1_sku', '')
-            
-            if product.get('site2_price'):
-                prices_dict['site2_price'] = product.get('site2_price')
-                prices_dict['site2_url'] = product.get('site2_url', '')
-                prices_dict['site2_sku'] = product.get('site2_sku', '')
-            
-            if product.get('site3_price'):
-                prices_dict['site3_price'] = product.get('site3_price')
-                prices_dict['site3_url'] = product.get('site3_url', '')
-                prices_dict['site3_sku'] = product.get('site3_sku', '')
-            
-            product['_prices_to_update'] = prices_dict
             
             filtered_products.append(product)
         
