@@ -102,7 +102,10 @@ class FurnitureRepricer:
         # ═══════════════════════════════════════════════════════════════
         self.pricing_engine = PricingEngine(self.price_rules)
         self.pricing_processor = BatchPricingProcessor(self.pricing_engine)
-    
+        
+        self.competitor_data = {}  # Кеш для competitors raw data
+
+
     def _load_base_config(self):
         """Завантажити базову YAML конфігурацію"""
         with open(self.config_path, 'r', encoding='utf-8') as f:
@@ -174,6 +177,7 @@ class FurnitureRepricer:
             
             # 3. Scrape competitors
             competitor_data = self._scrape_competitors()
+            self.competitor_data = competitor_data
             
             # 4. Match products з конкурентами
             matched_products = self._match_products(client_products, competitor_data)
@@ -342,6 +346,8 @@ class FurnitureRepricer:
         else:
             self.logger.info("AFA Stores scraper DISABLED in config")
         
+        self.competitor_data = competitor_data
+        
         return competitor_data
     
     def _match_products(self, client_products: List[Dict], 
@@ -363,12 +369,13 @@ class FurnitureRepricer:
             if not our_sku:
                 continue
             
-            # Match з кожним competitor
+            # ✅ КРИТИЧНО: Передати source='coleman' для правильної обробки префіксів
             # Coleman
             coleman_match = self.sku_matcher.find_matching_product(
                 our_sku, 
                 competitor_data.get('coleman', []),
-                sku_field='sku'
+                sku_field='sku',
+                source='coleman'  # ← ДОДАНО!
             )
             
             if coleman_match:
@@ -377,11 +384,12 @@ class FurnitureRepricer:
                 product['site1_url'] = coleman_match.get('url')
                 match_stats['coleman'] += 1
             
-            # 1StopBedrooms
+            # 1StopBedrooms (БЕЗ видалення префіксів)
             onestop_match = self.sku_matcher.find_matching_product(
                 our_sku,
                 competitor_data.get('onestopbedrooms', []),
-                sku_field='sku'
+                sku_field='sku',
+                source='onestopbedrooms'  # ← ДОДАНО!
             )
             
             if onestop_match:
@@ -390,11 +398,12 @@ class FurnitureRepricer:
                 product['site2_url'] = onestop_match.get('url')
                 match_stats['onestopbedrooms'] += 1
             
-            # AFA Stores
+            # AFA Stores (БЕЗ видалення префіксів)
             afa_match = self.sku_matcher.find_matching_product(
                 our_sku,
                 competitor_data.get('afastores', []),
-                sku_field='sku'
+                sku_field='sku',
+                source='afastores'  # ← ДОДАНО!
             )
             
             if afa_match:
@@ -418,7 +427,7 @@ class FurnitureRepricer:
         self.logger.info(f"  Products with competitors: {with_competitors}/{len(matched_products)}")
         
         return matched_products
-    
+
     def _calculate_prices(self, products: List[Dict]) -> List[Dict]:
         """Розрахувати ціни для products"""
         self.logger.info("\n" + "="*60)
@@ -515,12 +524,15 @@ class FurnitureRepricer:
             self.logger.info("Price updates DISABLED in config")
             return 0
         
-        # 1. Оновити основні ціни
+        # 1. Оновити основні ціни (тільки для matched products)
         updated = self.sheets_manager.batch_update_all(products)
         
-        # 2. Оновити Competitors sheet якщо enabled
+        # 2. ✅ НОВИЙ КОД: Оновити Competitors sheet (ВСІ зібрані товари)
         if self.runtime_config.get('enable_competitors_sheet', True):
-            competitors_updated = self.sheets_manager.batch_update_competitors_sheet(products)
+            # Передати competitor_data замість products!
+            competitors_updated = self.sheets_manager.batch_update_competitors_raw(
+                self.competitor_data  # ← RAW дані від scrapers
+            )
             self.logger.info(f"Competitors sheet: {competitors_updated} products")
         
         return updated

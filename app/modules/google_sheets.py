@@ -769,20 +769,9 @@ class RepricerSheetsManager:
     
     def batch_add_to_history(self, history_records: List[Dict]) -> int:
         """
-        ✅ FIXED v3.0: TRUE Batch запис Price History
+        ✅ FIXED v4.0: TRUE Batch запис Price History з auto-expand
         
         Структура: Date | SKU | URL | Old Price | New Price | Change
-        
-        Args:
-            history_records: [{
-                'sku': str,        # ← ДОДАНО SKU!
-                'url': str,
-                'old_price': float,
-                'new_price': float
-            }, ...]
-        
-        Returns:
-            Кількість записаних рядків
         """
         if not history_records:
             return 0
@@ -791,19 +780,17 @@ class RepricerSheetsManager:
             sheet_id = self.config['main_sheet']['id']
             history_name = 'Price_History'
             
-            # ✅ 1. Перевірити worksheet ОДИН РАЗ (1 API call)
+            # Перевірити worksheet ОДИН РАЗ (1 API call)
             if not self.client.worksheet_exists(sheet_id, history_name):
                 self.logger.info(f"Creating Price_History worksheet...")
-                ws = self.client.create_worksheet(sheet_id, history_name)
-                # ✅ FIXED: Правильні headers
+                ws = self.client.create_worksheet(sheet_id, history_name, rows=5000, cols=6)
                 headers = ['Date', 'SKU', 'URL', 'Old Price', 'New Price', 'Change']
                 ws.update('A1', [headers])
                 time.sleep(0.5)
             
-            # ✅ 2. Підготувати ВСІ рядки
+            # Підготувати ВСІ рядки
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # Формат для batch update: рядки починаються з A2
             all_rows = []
             for record in history_records:
                 old_price = record.get('old_price', 0)
@@ -812,7 +799,7 @@ class RepricerSheetsManager:
                 
                 row = [
                     timestamp,
-                    record.get('sku', ''),      # ✅ ДОДАНО SKU!
+                    record.get('sku', ''),
                     record.get('url', ''),
                     old_price,
                     new_price,
@@ -820,7 +807,7 @@ class RepricerSheetsManager:
                 ]
                 all_rows.append(row)
             
-            # ✅ 3. Записати ВСЕ одним batch update (1 API call)
+            # Записати ВСЕ одним batch update
             if all_rows:
                 time.sleep(0.5)
                 worksheet = self.client.open_sheet(sheet_id, history_name)
@@ -829,6 +816,15 @@ class RepricerSheetsManager:
                 existing_data = worksheet.get_all_values()
                 start_row = len(existing_data) + 1
                 end_row = start_row + len(all_rows) - 1
+                
+                # ✅ ВИПРАВЛЕННЯ: Розширити worksheet якщо потрібно
+                current_rows = worksheet.row_count
+                rows_needed = end_row
+                
+                if current_rows < rows_needed:
+                    self.logger.info(f"Expanding Price_History from {current_rows} to {rows_needed} rows...")
+                    worksheet.resize(rows=rows_needed)
+                    time.sleep(0.3)
                 
                 # Update одним range
                 range_name = f'A{start_row}:F{end_row}'
@@ -842,6 +838,7 @@ class RepricerSheetsManager:
         except Exception as e:
             self.logger.error(f"Failed to batch add price history: {e}", exc_info=True)
             return 0
+
 
     def update_emma_mason_data(self, url: str, emma_id: str, new_price: float) -> bool:
         """
@@ -1072,111 +1069,6 @@ class RepricerSheetsManager:
             self.logger.error(f"Failed batch update Emma Mason: {e}", exc_info=True)
             return 0
 
-    def batch_update_competitors_sheet(self, products: List[Dict]) -> int:
-        """
-        ✅ FIXED v4.0: Оновити аркуш "Competitors"
-        
-        Структура: Site 1 SKU | Site 1 Price | Site 1 URL | Site 2 SKU | Site 2 Price | Site 2 URL | Site 3 SKU | Site 3 Price | Site 3 URL
-        
-        ⚠️ БЕЗ колонки SKU товару! Тільки дані конкурентів!
-        
-        Args:
-            products: Список товарів з competitor data
-        
-        Returns:
-            Кількість оновлених рядків
-        """
-        try:
-            sheet_id = self.config['main_sheet']['id']
-            competitors_sheet = "Competitors"
-            
-            self.logger.info(f"Updating Competitors sheet for {len(products)} products...")
-            
-            # Перевірити чи існує аркуш
-            if not self.client.worksheet_exists(sheet_id, competitors_sheet):
-                self.logger.info("Creating Competitors worksheet...")
-                ws = self.client.create_worksheet(sheet_id, competitors_sheet, rows=10000, cols=9)
-                
-                # ✅ FIXED v4.0: Тільки дані конкурентів (БЕЗ SKU товару)
-                headers = [
-                    'Site 1 SKU',    # A
-                    'Site 1 Price',  # B
-                    'Site 1 URL',    # C
-                    'Site 2 SKU',    # D
-                    'Site 2 Price',  # E
-                    'Site 2 URL',    # F
-                    'Site 3 SKU',    # G
-                    'Site 3 Price',  # H
-                    'Site 3 URL',    # I
-                ]
-                ws.update('A1', [headers])
-                time.sleep(0.5)
-            
-            # Завантажити існуючі дані
-            time.sleep(0.5)
-            worksheet = self.client.open_sheet(sheet_id, competitors_sheet)
-            all_data = worksheet.get_all_values()
-            
-            # Підготувати batch update
-            # Стратегія: append нові рядки (не оновлюємо існуючі, бо немає унікального ключа)
-            new_rows = []
-            
-            for product in products:
-                # ✅ Дані конкурентів (конвертувати в float для чисел!)
-                site1_sku = product.get('site1_sku', '')
-                site1_price = self._to_float(product.get('site1_price'))
-                site1_url = product.get('site1_url', '')
-                
-                site2_sku = product.get('site2_sku', '')
-                site2_price = self._to_float(product.get('site2_price'))
-                site2_url = product.get('site2_url', '')
-                
-                site3_sku = product.get('site3_sku', '')
-                site3_price = self._to_float(product.get('site3_price'))
-                site3_url = product.get('site3_url', '')
-                
-                # Якщо немає жодних даних конкурентів - пропустити
-                if not any([site1_sku, site2_sku, site3_sku]):
-                    continue
-                
-                # ✅ FIXED: Тільки дані конкурентів (БЕЗ SKU товару!)
-                row_data = [
-                    site1_sku,    # A
-                    site1_price,  # B - як ЧИСЛО!
-                    site1_url,    # C
-                    site2_sku,    # D
-                    site2_price,  # E - як ЧИСЛО!
-                    site2_url,    # F
-                    site3_sku,    # G
-                    site3_price,  # H - як ЧИСЛО!
-                    site3_url     # I
-                ]
-                
-                new_rows.append(row_data)
-            
-            # ✅ Додати нові рядки одним batch update!
-            if new_rows:
-                self.logger.info(f"Adding {len(new_rows)} rows to Competitors sheet (batch mode)...")
-                
-                # Визначити початковий рядок
-                existing_data = worksheet.get_all_values()
-                start_row = len(existing_data) + 1
-                end_row = start_row + len(new_rows) - 1
-                
-                # Update одним range з USER_ENTERED для правильного форматування чисел
-                range_name = f'A{start_row}:I{end_row}'
-                worksheet.update(range_name, new_rows, value_input_option='USER_ENTERED')
-                
-                self.logger.info(f"✓ Competitors sheet updated: {len(new_rows)} rows added")
-                return len(new_rows)
-            else:
-                self.logger.info("No competitor data to add")
-                return 0
-            
-        except Exception as e:
-            self.logger.error(f"Failed to update Competitors sheet: {e}", exc_info=True)
-            return 0
-
     def _to_float(self, value, default: float = 0.0) -> float:
         """
         Конвертувати значення в float з обробкою різних форматів
@@ -1233,3 +1125,141 @@ class RepricerSheetsManager:
         except:
             self.logger.warning(f"Cannot convert {type(value)} '{value}' to float")
             return default
+
+    def batch_update_competitors_raw(self, competitor_data: Dict[str, List[Dict]]) -> int:
+        """
+        ✅ FIXED: Записати ВСІ RAW дані від конкурентів
+        
+        Структура Competitors sheet:
+        Source | SKU | Price | URL | Brand | Title | Date Scraped
+        
+        Args:
+            competitor_data: {
+                'coleman': [{'sku': ..., 'price': ..., 'url': ..., 'brand': ..., 'title': ...}, ...],
+                'onestopbedrooms': [...],
+                'afastores': [...]
+            }
+        
+        Returns:
+            Загальна кількість записаних товарів
+        """
+        try:
+            sheet_id = self.config['main_sheet']['id']
+            competitors_sheet = "Competitors"
+            
+            # Підрахувати загальну кількість
+            total_products = sum(len(products) for products in competitor_data.values())
+            
+            self.logger.info(f"Updating Competitors sheet with {total_products} RAW competitor products...")
+            
+            # Перевірити чи існує аркуш
+            if not self.client.worksheet_exists(sheet_id, competitors_sheet):
+                self.logger.info("Creating Competitors worksheet...")
+                ws = self.client.create_worksheet(sheet_id, competitors_sheet, rows=20000, cols=7)
+                
+                # Headers
+                headers = [
+                    'Source',       # A - Coleman, 1StopBedrooms, AFA
+                    'SKU',          # B
+                    'Price',        # C
+                    'URL',          # D
+                    'Brand',        # E
+                    'Title',        # F
+                    'Date Scraped'  # G
+                ]
+                ws.update('A1', [headers])
+                time.sleep(0.5)
+            
+            # Підготувати ВСІ рядки
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            all_rows = []
+            
+            # Coleman
+            for product in competitor_data.get('coleman', []):
+                row = [
+                    'Coleman',
+                    str(product.get('sku', '')),
+                    self._to_float(product.get('price', 0)),
+                    product.get('url', ''),
+                    product.get('brand', ''),
+                    product.get('title', ''),
+                    timestamp
+                ]
+                all_rows.append(row)
+            
+            # 1StopBedrooms
+            for product in competitor_data.get('onestopbedrooms', []):
+                row = [
+                    '1StopBedrooms',
+                    str(product.get('sku', '')),
+                    self._to_float(product.get('price', 0)),
+                    product.get('url', ''),
+                    product.get('brand', ''),
+                    product.get('title', ''),
+                    timestamp
+                ]
+                all_rows.append(row)
+            
+            # AFA Stores
+            for product in competitor_data.get('afastores', []):
+                row = [
+                    'AFA Stores',
+                    str(product.get('sku', '')),
+                    self._to_float(product.get('price', 0)),
+                    product.get('url', ''),
+                    product.get('brand', ''),
+                    product.get('title', ''),
+                    timestamp
+                ]
+                all_rows.append(row)
+            
+            # Записати ВСЕ одним batch update
+            if all_rows:
+                self.logger.info(f"Writing {len(all_rows)} competitor products...")
+                
+                time.sleep(0.5)
+                worksheet = self.client.open_sheet(sheet_id, competitors_sheet)
+                
+                # ✅ ВИПРАВЛЕННЯ: Розширити worksheet перед записом
+                rows_needed = len(all_rows) + 1  # +1 для header
+                current_rows = worksheet.row_count
+                
+                if current_rows < rows_needed:
+                    self.logger.info(f"Expanding worksheet from {current_rows} to {rows_needed} rows...")
+                    worksheet.resize(rows=rows_needed)
+                    time.sleep(0.3)
+                
+                # Очистити старі дані (залишити тільки header)
+                if current_rows > 1:
+                    self.logger.info("Clearing old data...")
+                    clear_range = f'A2:G{current_rows}'
+                    worksheet.batch_clear([clear_range])
+                    time.sleep(0.3)
+                
+                # Визначити діапазон
+                start_row = 2  # Після header
+                end_row = start_row + len(all_rows) - 1
+                
+                # Update одним range з USER_ENTERED для правильного форматування чисел
+                range_name = f'A{start_row}:G{end_row}'
+                worksheet.update(range_name, all_rows, value_input_option='USER_ENTERED')
+                
+                self.logger.info(f"✓ Competitors sheet updated: {len(all_rows)} RAW products")
+                
+                # Показати статистику
+                coleman_count = len(competitor_data.get('coleman', []))
+                onestop_count = len(competitor_data.get('onestopbedrooms', []))
+                afa_count = len(competitor_data.get('afastores', []))
+                
+                self.logger.info(f"  Coleman: {coleman_count}")
+                self.logger.info(f"  1StopBedrooms: {onestop_count}")
+                self.logger.info(f"  AFA Stores: {afa_count}")
+                
+                return len(all_rows)
+            else:
+                self.logger.warning("No competitor data to write!")
+                return 0
+            
+        except Exception as e:
+            self.logger.error(f"Failed to update Competitors sheet: {e}", exc_info=True)
+            return 0
