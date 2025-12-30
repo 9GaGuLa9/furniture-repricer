@@ -299,11 +299,11 @@ class ConfigManager:
         
         # Перевірка числових діапазонів
         validations = [
-            ('max_products_emmamason', 100, 10000),
-            ('max_products_per_competitor', 50, 5000),
+            ('max_products_emmamason', 100, 50000),
+            ('max_products_per_competitor', 50, 50000),
             ('scraping_timeout_minutes', 10, 120),
-            ('min_price_change_percent', 0, 100),
-            ('max_price_change_percent', 1, 100),
+            ('min_price_change_percent', 0, 300),
+            ('max_price_change_percent', 1, 300),
             ('min_valid_price', 1, 1000),
             ('max_valid_price', 100, 100000),
             ('batch_size_sheets_update', 100, 1000),

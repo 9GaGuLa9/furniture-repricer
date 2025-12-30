@@ -246,11 +246,6 @@ class FurnitureRepricer:
             
             # Batch update
             if emma_products and not self.runtime_config.get('dry_run'):
-                # ✅ DEBUG: Зберегти RAW дані в окремий аркуш
-                raw_saved = self.sheets_manager.batch_update_emma_mason_raw(emma_products)
-                self.logger.info(f"✓ Emma Mason RAW saved: {raw_saved} products")
-                
-                # Оновити основну таблицю
                 updated = self.sheets_manager.batch_update_emma_mason(emma_products)
                 self.logger.info(f"✓ Emma Mason updated: {updated} products")
             

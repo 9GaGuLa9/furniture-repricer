@@ -40,8 +40,8 @@ scraper_afastores: true        # Scraping AFA Stores
 # =====================================================
 # SCRAPING LIMITS
 # =====================================================
-max_products_emmamason: 5000          # Максимум товарів з Emma Mason (100-10000)
-max_products_per_competitor: 2000     # Максимум товарів з кожного конкурента (50-5000)
+max_products_emmamason: 10000          # Максимум товарів з Emma Mason (100-10000)
+max_products_per_competitor: 5000     # Максимум товарів з кожного конкурента (50-5000)
 scraping_timeout_minutes: 45          # Таймаут scraping у хвилинах (10-120)
 
 # =====================================================
