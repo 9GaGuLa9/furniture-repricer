@@ -1,5 +1,6 @@
 # Прибрати
 based/
+backup*/
 **output/
 *.bat
 test_*
