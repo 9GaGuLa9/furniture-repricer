@@ -17,6 +17,7 @@ from .modules.config_reader import GoogleSheetsConfigReader
 from .modules.config_manager import ConfigManager
 from .modules.error_logger import ErrorLogger
 from .modules.sku_matcher import SKUMatcher
+from .modules.competitors_tracker import CompetitorsMatchedTracker  # ← NEW!
 from .modules.pricing import PricingEngine, BatchPricingProcessor
 
 # Scrapers
@@ -142,6 +143,11 @@ class FurnitureRepricer:
         sku_config = self.base_config.get('sku_matching', {})
         self.sku_matcher = SKUMatcher(sku_config)
         
+        # ═══════════════════════════════════════════════════════════
+        # Competitors Matched Tracker - NEW!
+        # ═══════════════════════════════════════════════════════════
+        self.matched_tracker = CompetitorsMatchedTracker()
+        
         self.logger.info("✓ Components initialized")
     
     def run(self):
@@ -217,6 +223,15 @@ class FurnitureRepricer:
         self.logger.info("Loading client data from Google Sheets...")
         
         products = self.sheets_manager.get_main_data()
+        
+        # ═══════════════════════════════════════════════════════════
+        # NEW: Зберегти URLs наших товарів для matched tracking
+        # ═══════════════════════════════════════════════════════════
+        for product in products:
+            sku = product.get('sku')
+            url = product.get('url')  # Змінити якщо поле називається інакше
+            if sku:
+                self.matched_tracker.add_our_product(sku, url)
         
         self.logger.info(f"✓ Loaded {len(products)} products from sheet")
         
@@ -355,6 +370,82 @@ class FurnitureRepricer:
         
         return competitor_data
     
+    def _match_and_track_competitor(
+        self, 
+        product: Dict,
+        our_sku: str,
+        source: str,
+        competitor_products: List[Dict],
+        site_prefix: str
+    ) -> bool:
+        """
+        Зіставити товар з competitor і відстежити результат
+        
+        NEW METHOD: Використовує find_best_match замість find_matching_product
+        Знаходить ВСІ matches → вибирає найкращу ціну → відстежує всі результати
+        
+        Args:
+            product: Наш товар (буде оновлено з competitor даними)
+            our_sku: Наш SKU
+            source: 'coleman', 'onestopbedrooms', 'afastores'
+            competitor_products: Список товарів competitor
+            site_prefix: 'site1', 'site2', 'site3'
+        
+        Returns:
+            True якщо знайдено match
+        """
+        
+        # ═══════════════════════════════════════════════════════════
+        # Знайти ВСІ matches (для tracking)
+        # ═══════════════════════════════════════════════════════════
+        all_matches = self.sku_matcher.find_all_matching_products(
+            our_sku,
+            competitor_products,
+            sku_field='sku',
+            source=source
+        )
+        
+        # Track ALL matches (навіть ті що не обрані)
+        for match in all_matches:
+            comp_sku = match.get('sku')
+            self.matched_tracker.track_match(
+                source=source,
+                competitor_sku=comp_sku,
+                our_sku=our_sku,
+                used=False  # Спочатку всі not used
+            )
+        
+        # ═══════════════════════════════════════════════════════════
+        # Знайти BEST match (найнижча ціна)
+        # ═══════════════════════════════════════════════════════════
+        best_match = self.sku_matcher.find_best_match(
+            our_sku,
+            competitor_products,
+            sku_field='sku',
+            price_field='price',
+            source=source
+        )
+        
+        if best_match:
+            best_sku = best_match.get('sku')
+            
+            # Mark as USED in pricing
+            self.matched_tracker.track_match(
+                source=source,
+                competitor_sku=best_sku,
+                our_sku=our_sku,
+                used=True  # ✓ Цей обрано!
+            )
+            
+            # Зберегти в product
+            product[f'{site_prefix}_sku'] = best_sku
+            product[f'{site_prefix}_price'] = best_match.get('price')
+            product[f'{site_prefix}_url'] = best_match.get('url')
+            
+            return True
+        
+        return False
+    
     def _match_products(self, client_products: List[Dict], 
                         competitor_data: Dict[str, List[Dict]]) -> List[Dict]:
         """Match products з конкурентами за SKU"""
@@ -374,62 +465,57 @@ class FurnitureRepricer:
             if not our_sku:
                 continue
             
-            # ✅ КРИТИЧНО: Передати source='coleman' для правильної обробки префіксів
-            # Coleman
-            coleman_match = self.sku_matcher.find_matching_product(
+            # ═══════════════════════════════════════════════════════
+            # Coleman - NEW: використовує find_best_match + tracking
+            # ═══════════════════════════════════════════════════════
+            if self._match_and_track_competitor(
+                product, 
                 our_sku, 
+                'coleman',
                 competitor_data.get('coleman', []),
-                sku_field='sku',
-                source='coleman'  # ← ДОДАНО!
-            )
-            
-            if coleman_match:
-                product['site1_sku'] = coleman_match.get('sku')
-                product['site1_price'] = coleman_match.get('price')
-                product['site1_url'] = coleman_match.get('url')
+                'site1'
+            ):
                 match_stats['coleman'] += 1
             
-            # 1StopBedrooms (БЕЗ видалення префіксів)
-            onestop_match = self.sku_matcher.find_matching_product(
-                our_sku,
+            # ═══════════════════════════════════════════════════════
+            # 1StopBedrooms - NEW: використовує find_best_match + tracking
+            # ═══════════════════════════════════════════════════════
+            if self._match_and_track_competitor(
+                product, 
+                our_sku, 
+                'onestopbedrooms',
                 competitor_data.get('onestopbedrooms', []),
-                sku_field='sku',
-                source='onestopbedrooms'  # ← ДОДАНО!
-            )
-            
-            if onestop_match:
-                product['site2_sku'] = onestop_match.get('sku')
-                product['site2_price'] = onestop_match.get('price')
-                product['site2_url'] = onestop_match.get('url')
+                'site2'
+            ):
                 match_stats['onestopbedrooms'] += 1
             
-            # AFA Stores (БЕЗ видалення префіксів)
-            afa_match = self.sku_matcher.find_matching_product(
-                our_sku,
+            # ═══════════════════════════════════════════════════════
+            # AFA Stores - NEW: використовує find_best_match + tracking
+            # ═══════════════════════════════════════════════════════
+            if self._match_and_track_competitor(
+                product, 
+                our_sku, 
+                'afastores',
                 competitor_data.get('afastores', []),
-                sku_field='sku',
-                source='afastores'  # ← ДОДАНО!
-            )
-            
-            if afa_match:
-                product['site3_sku'] = afa_match.get('sku')
-                product['site3_price'] = afa_match.get('price')
-                product['site3_url'] = afa_match.get('url')
+                'site3'
+            ):
                 match_stats['afastores'] += 1
             
             matched_products.append(product)
         
-        self.logger.info("Matching statistics:")
-        self.logger.info(f"  Coleman: {match_stats['coleman']} matches")
-        self.logger.info(f"  1StopBedrooms: {match_stats['onestopbedrooms']} matches")
-        self.logger.info(f"  AFA Stores: {match_stats['afastores']} matches")
+        # Мінімальна статистика (тільки цифри)
+        self.logger.info(
+            f"Coleman: {match_stats['coleman']} | "
+            f"1StopBedrooms: {match_stats['onestopbedrooms']} | "
+            f"AFA: {match_stats['afastores']}"
+        )
         
         with_competitors = sum(
             1 for p in matched_products 
             if any([p.get('site1_price'), p.get('site2_price'), p.get('site3_price')])
         )
         
-        self.logger.info(f"  Products with competitors: {with_competitors}/{len(matched_products)}")
+        self.logger.info(f"Products with competitors: {with_competitors}/{len(matched_products)}")
         
         return matched_products
 
@@ -551,13 +637,33 @@ class FurnitureRepricer:
         # 1. Оновити основні ціни (тільки для matched products)
         updated = self.sheets_manager.batch_update_all(products)
         
-        # 2. ✅ НОВИЙ КОД: Оновити Competitors sheet (ВСІ зібрані товари)
+        # 2. ✅ ОНОВЛЕНО: Передати matched_tracker для tracking колонок!
         if self.runtime_config.get('enable_competitors_sheet', True):
-            # Передати competitor_data замість products!
+            # Передати competitor_data + matched_tracker
             competitors_updated = self.sheets_manager.batch_update_competitors_raw(
-                self.competitor_data  # ← RAW дані від scrapers
+                self.competitor_data,  # ← RAW дані від scrapers
+                matched_tracker=self.matched_tracker  # ← NEW! Для tracking колонок
             )
+            
             self.logger.info(f"Competitors sheet: {competitors_updated} products")
+            
+            # ═══════════════════════════════════════════════════════
+            # NEW: Показати matched tracking статистику
+            # ═══════════════════════════════════════════════════════
+            total_counts = {
+                src: len(prods) 
+                for src, prods in self.competitor_data.items()
+            }
+            stats = self.matched_tracker.get_statistics(total_counts)
+            
+            self.logger.info("\nMatched tracking statistics:")
+            for source in ['coleman', 'onestopbedrooms', 'afastores']:
+                s = stats.get(source, {'total': 0, 'matched': 0, 'used': 0})
+                self.logger.info(
+                    f"{source}: {s['total']} total | "
+                    f"{s['matched']} matched | "
+                    f"{s['used']} used"
+                )
         
         return updated
     

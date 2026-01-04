@@ -1,13 +1,9 @@
 """
-Emma Mason Brands Scraper - FIXED VERSION v2.0
+Emma Mason Brands Scraper - OPTIMIZED VERSION v3.0
 ✅ FIXED: Price parsing - converts "887,84" → 887.84 (comma to dot)
 ✅ URL consistency for matching
 ✅ Error handling for price conversion
-
-МЕХАНІЗМ:
-1. Збирає товари з брендів → структура {id, url, price}
-2. main.py викликає scrape_emmamason_brands(config)
-3. google_sheets.batch_update_emma_mason() шукає по URL та записує
+✅ OPTIMIZED: Removed redundant conditions and unused methods
 """
 
 import time
@@ -35,7 +31,7 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
     
     BASE_URL = "https://emmamason.com"
     
-    # Цільові бренди (з вашого config)
+    # Цільові бренди
     BRANDS = [
         {"name": "ACME", "url": "brands-by-acme~129973.html"},
         {"name": "Westwood Design", "url": "brands-by-westwood-design~937124.html"},
@@ -61,24 +57,13 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
         self.timeout = config.get('timeout', 45)
         self.per_page = 40
         
-        self.stats = {
-            'total_products': 0,
-            'unique_ids': 0,
-            'duplicate_ids': 0,
-            'brands_processed': 0,
-            'pages_processed': 0,
-            'errors': 0,
-            'timeouts': 0,
-            'price_conversion_errors': 0  # ✅ NEW
-        }
-        
         if not CURL_CFFI_AVAILABLE:
             logger.error("curl_cffi not available! Scraper may fail!")
         else:
             logger.info("✓ curl_cffi available")
         
         logger.info("="*60)
-        logger.info("Emma Mason Brands Scraper v2.0")
+        logger.info("Emma Mason Brands Scraper v3.0 (Optimized)")
         logger.info("="*60)
     
     def _random_delay(self):
@@ -90,9 +75,7 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
         return random.choice(self.USER_AGENTS)
     
     def _fetch_page(self, url: str, referer: Optional[str] = None) -> Optional[str]:
-        """
-        Завантажити сторінку (curl_cffi + impersonate)
-        """
+        """Завантажити сторінку (curl_cffi + impersonate)"""
         for attempt in range(1, self.retry_attempts + 1):
             try:
                 headers = {
@@ -135,14 +118,12 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
                 error_msg = str(e)
                 
                 if "timed out" in error_msg.lower() or "timeout" in error_msg.lower():
-                    self.stats['timeouts'] += 1
                     logger.warning(f"Timeout (attempt {attempt}/{self.retry_attempts})")
                     time.sleep(random.uniform(5, 10))
                 else:
                     logger.error(f"Request error (attempt {attempt}): {e}")
                     time.sleep(3)
         
-        self.stats['errors'] += 1
         return None
     
     def _parse_price(self, price_text: str) -> Optional[str]:
@@ -196,25 +177,18 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
                 return cleaned
             except ValueError:
                 logger.warning(f"Failed to parse price '{price_text}' → '{cleaned}'")
-                self.stats['price_conversion_errors'] += 1
                 return None
                 
         except Exception as e:
             logger.error(f"Price parsing error for '{price_text}': {e}")
-            self.stats['price_conversion_errors'] += 1
             return None
     
     def _extract_products_from_page(self, html: str, brand_name: str) -> List[Dict]:
         """
         Витягти товари зі сторінки бренду
         
-        ✅ КРИТИЧНО: Повертає структуру для batch_update_emma_mason():
-        {
-            'id': product_id,     # ← Колонка R: ID from emmamason
-            'url': url,           # ← Колонка F: Our URL (для пошуку)
-            'price': price,       # ← Колонка D: Our Sales Price (FIXED)
-            'brand': brand_name,  # Для статистики
-        }
+        Returns:
+            List[Dict]: [{id, url, price, brand}, ...]
         """
         products = []
         
@@ -247,13 +221,11 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
                         price_text = price_elem.get_text(strip=True)
                         price = self._parse_price(price_text)
                     
-                    # ✅ СТРУКТУРА для Google Sheets integration
-                    # ✅ КЛЮЧОВО: Поле 'id', НЕ 'product_id'!
                     products.append({
-                        'id': product_id,           # ← ID from emmamason (R)
-                        'url': url,                 # ← Our URL (F) для пошуку
-                        'price': price,             # ← Our Sales Price (D) - FIXED!
-                        'brand': brand_name,        # Для статистики
+                        'id': product_id,
+                        'url': url,
+                        'price': price,
+                        'brand': brand_name,
                         'scraped_at': datetime.now().isoformat()
                     })
                 
@@ -267,9 +239,7 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
         return products
     
     def scrape_brand(self, brand_info: dict, seen_ids: Set[str]) -> List[Dict]:
-        """
-        Парсити один бренд
-        """
+        """Парсити один бренд"""
         brand_name = brand_info['name']
         brand_url = brand_info['url']
         
@@ -279,6 +249,7 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
         page = 1
         
         while True:
+            # Побудувати URL
             if page == 1:
                 url = f"{self.BASE_URL}/{brand_url}?product_list_limit={self.per_page}"
             else:
@@ -286,20 +257,26 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
             
             logger.debug(f"  Page {page}: {url}")
             
+            # Завантажити сторінку
             html = self._fetch_page(url, referer=self.BASE_URL)
             
             if not html:
                 logger.error(f"  Failed to fetch page {page}")
                 break
             
+            # Перевірка Cloudflare
             if "Just a moment" in html or "Checking your browser" in html:
                 logger.warning(f"  Cloudflare challenge detected")
                 break
             
+            # Парсити товари
             products = self._extract_products_from_page(html, brand_name)
             
+            # ═══════════════════════════════════════════════════════════
+            # ✅ OPTIMIZED: Зупинка тільки коли товарів НЕМАЄ
+            # ═══════════════════════════════════════════════════════════
             if not products:
-                logger.info(f"  No products on page {page}")
+                logger.info(f"  No products on page {page} - last page")
                 break
             
             # Додати унікальні
@@ -309,22 +286,18 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
             for product in products:
                 product_id = product['id']
                 
-                if product_id in seen_ids:
-                    duplicate_count += 1
-                    self.stats['duplicate_ids'] += 1
-                else:
+                if product_id not in seen_ids:
                     seen_ids.add(product_id)
                     brand_products.append(product)
                     new_count += 1
+                else:
+                    duplicate_count += 1
             
-            logger.info(f"  Page {page}: {len(products)} products, {new_count} new, {duplicate_count} duplicates (total: {len(brand_products)})")
+            logger.info(f"  Page {page}: {new_count} new, {duplicate_count} duplicates (total: {len(brand_products)})")
             
-            self.stats['pages_processed'] += 1
-            
-            if len(products) < self.per_page:
-                logger.info(f"  Last page (products < {self.per_page})")
-                break
-            
+            # ═══════════════════════════════════════════════════════════
+            # Захист від нескінченного циклу
+            # ═══════════════════════════════════════════════════════════
             if page >= 100:
                 logger.warning(f"  Page limit reached (100)")
                 break
@@ -332,8 +305,7 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
             page += 1
             self._random_delay()
         
-        logger.info(f"Brand {brand_name}: {len(brand_products)} unique products")
-        self.stats['brands_processed'] += 1
+        logger.info(f"✓ Brand {brand_name}: {len(brand_products)} unique products")
         
         return brand_products
     
@@ -365,11 +337,27 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
             self.log_scraping_error(error=e, context={'stage': 'main'})
             raise
         
+        # ═══════════════════════════════════════════════════════════
+        # Final statistics
+        # ═══════════════════════════════════════════════════════════
+        logger.info("\n" + "="*60)
+        logger.info("SCRAPING COMPLETED")
+        logger.info("="*60)
+        logger.info(f"Total products: {len(all_products)}")
+        logger.info(f"Unique IDs: {len(seen_ids)}")
+        
+        # Статистика по брендах
+        brands_stats = {}
+        for p in all_products:
+            brand = p['brand']
+            brands_stats[brand] = brands_stats.get(brand, 0) + 1
+        
+        logger.info("\nBy brand:")
+        for brand, count in brands_stats.items():
+            logger.info(f"  {brand}: {count}")
+        logger.info("="*60)
+        
         return all_products
-    
-    def get_stats(self) -> dict:
-        """Повернути статистику"""
-        return self.stats.copy()
 
 
 def scrape_emmamason_brands(config: dict) -> List[Dict]:
@@ -410,7 +398,7 @@ if __name__ == "__main__":
     }
     
     print("\n" + "="*60)
-    print("ТЕСТ EMMA MASON BRANDS SCRAPER v2.0 (FIXED)")
+    print("ТЕСТ EMMA MASON BRANDS SCRAPER v3.0 (OPTIMIZED)")
     print("="*60 + "\n")
     
     results = scrape_emmamason_brands(config)
@@ -420,16 +408,6 @@ if __name__ == "__main__":
     print("="*60)
     
     if results:
-        # Статистика по брендах
-        brands = {}
-        for p in results:
-            brand = p['brand']
-            brands[brand] = brands.get(brand, 0) + 1
-        
-        print("\nBy brand:")
-        for brand, count in brands.items():
-            print(f"  {brand}: {count}")
-        
         print(f"\nSample (first 3):")
         for i, p in enumerate(results[:3], 1):
             print(f"\n{i}. ID: {p['id']}")

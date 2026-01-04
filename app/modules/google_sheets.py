@@ -1127,143 +1127,136 @@ class RepricerSheetsManager:
             self.logger.warning(f"Cannot convert {type(value)} '{value}' to float")
             return default
 
-    def batch_update_competitors_raw(self, competitor_data: Dict[str, List[Dict]]) -> int:
+    def batch_update_competitors_raw(
+        self, 
+        competitor_data: Dict[str, List[Dict]],
+        matched_tracker=None  # NEW parameter
+    ) -> int:
         """
-        ✅ FIXED: Записати ВСІ RAW дані від конкурентів
+        Update Competitors sheet with matched tracking
         
-        Структура Competitors sheet:
-        Source | SKU | Price | URL | Brand | Title | Date Scraped
-        
-        Args:
-            competitor_data: {
-                'coleman': [{'sku': ..., 'price': ..., 'url': ..., 'brand': ..., 'title': ...}, ...],
-                'onestopbedrooms': [...],
-                'afastores': [...]
-            }
-        
-        Returns:
-            Загальна кількість записаних товарів
+        FIXED: Використовує правильний API (як batch_update_emma_mason_raw)
         """
+        
         try:
             sheet_id = self.config['main_sheet']['id']
-            competitors_sheet = "Competitors"
+            sheet_name = "Competitors"
             
-            # Підрахувати загальну кількість
-            total_products = sum(len(products) for products in competitor_data.values())
+            # NEW: Headers with 4 additional columns
+            headers = [
+                'Source',
+                'SKU',
+                'Price',
+                'URL',
+                'Brand',
+                'Title',
+                'Date Scraped',
+                'Matched',              # NEW
+                'Matched With',         # NEW
+                'Matched With URL',     # NEW
+                'Used In Pricing'       # NEW
+            ]
             
-            self.logger.info(f"Updating Competitors sheet with {total_products} RAW competitor products...")
+            all_rows = []
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # Перевірити чи існує аркуш
-            if not self.client.worksheet_exists(sheet_id, competitors_sheet):
-                self.logger.info("Creating Competitors worksheet...")
-                ws = self.client.create_worksheet(sheet_id, competitors_sheet, rows=20000, cols=7)
+            source_names = {
+                'coleman': 'Coleman',
+                'onestopbedrooms': '1StopBedrooms',
+                'afastores': 'AFA Stores'
+            }
+            
+            for source, products in competitor_data.items():
+                source_display = source_names.get(source, source)
                 
-                # Headers
-                headers = [
-                    'Source',       # A - Coleman, 1StopBedrooms, AFA
-                    'SKU',          # B
-                    'Price',        # C
-                    'URL',          # D
-                    'Brand',        # E
-                    'Title',        # F
-                    'Date Scraped'  # G
-                ]
+                for product in products:
+                    sku = str(product.get('sku', ''))
+                    
+                    # NEW: Get tracking info
+                    matched = False
+                    matched_with = ''
+                    matched_with_url = ''
+                    used = False
+                    
+                    if matched_tracker:
+                        tracking = matched_tracker.get_tracking(source, sku)
+                        if tracking.get('matched_with'):
+                            matched = True
+                            matched_with = tracking.get('matched_with', '')
+                            matched_with_url = tracking.get('matched_with_url', '')
+                            used = tracking.get('used', False)
+                    
+                    row = [
+                        source_display,
+                        sku,
+                        self._to_float(product.get('price', 0)),
+                        product.get('url', ''),
+                        product.get('brand', ''),
+                        product.get('title', ''),
+                        timestamp,
+                        matched,              # Boolean TRUE/FALSE
+                        matched_with,         # Our SKU
+                        matched_with_url,     # Our URL
+                        used                  # Boolean TRUE/FALSE
+                    ]
+                    all_rows.append(row)
+            
+            if not all_rows:
+                self.logger.warning("No competitor data to write")
+                return 0
+            
+            # ═══════════════════════════════════════════════════════════════
+            # FIXED: Use correct API (like batch_update_emma_mason_raw)
+            # ═══════════════════════════════════════════════════════════════
+            
+            self.logger.info(f"Updating {sheet_name} sheet with {len(all_rows)} products...")
+            
+            # Check if worksheet exists
+            if not self.client.worksheet_exists(sheet_id, sheet_name):
+                self.logger.info(f"Creating {sheet_name} worksheet...")
+                ws = self.client.create_worksheet(sheet_id, sheet_name, rows=20000, cols=11)
                 ws.update('A1', [headers])
                 time.sleep(0.5)
             
-            # Підготувати ВСІ рядки
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            all_rows = []
+            # Open worksheet
+            worksheet = self.client.open_sheet(sheet_id, sheet_name)
             
-            # Coleman
-            for product in competitor_data.get('coleman', []):
-                row = [
-                    'Coleman',
-                    str(product.get('sku', '')),
-                    self._to_float(product.get('price', 0)),
-                    product.get('url', ''),
-                    product.get('brand', ''),
-                    product.get('title', ''),
-                    timestamp
-                ]
-                all_rows.append(row)
+            # Resize if needed
+            rows_needed = len(all_rows) + 1  # +1 for headers
+            current_rows = worksheet.row_count
             
-            # 1StopBedrooms
-            for product in competitor_data.get('onestopbedrooms', []):
-                row = [
-                    '1StopBedrooms',
-                    str(product.get('sku', '')),
-                    self._to_float(product.get('price', 0)),
-                    product.get('url', ''),
-                    product.get('brand', ''),
-                    product.get('title', ''),
-                    timestamp
-                ]
-                all_rows.append(row)
+            if current_rows < rows_needed:
+                self.logger.info(f"Expanding worksheet from {current_rows} to {rows_needed} rows...")
+                worksheet.resize(rows=rows_needed)
+                time.sleep(0.3)
             
-            # AFA Stores
-            for product in competitor_data.get('afastores', []):
-                row = [
-                    'AFA Stores',
-                    str(product.get('sku', '')),
-                    self._to_float(product.get('price', 0)),
-                    product.get('url', ''),
-                    product.get('brand', ''),
-                    product.get('title', ''),
-                    timestamp
-                ]
-                all_rows.append(row)
+            # Clear old data (keep headers)
+            if current_rows > 1:
+                self.logger.info("Clearing old data...")
+                clear_range = f'A2:K{current_rows}'
+                worksheet.batch_clear([clear_range])
+                time.sleep(0.3)
             
-            # Записати ВСЕ одним batch update
-            if all_rows:
-                self.logger.info(f"Writing {len(all_rows)} competitor products...")
-                
-                time.sleep(0.5)
-                worksheet = self.client.open_sheet(sheet_id, competitors_sheet)
-                
-                # ✅ ВИПРАВЛЕННЯ: Розширити worksheet перед записом
-                rows_needed = len(all_rows) + 1  # +1 для header
-                current_rows = worksheet.row_count
-                
-                if current_rows < rows_needed:
-                    self.logger.info(f"Expanding worksheet from {current_rows} to {rows_needed} rows...")
-                    worksheet.resize(rows=rows_needed)
-                    time.sleep(0.3)
-                
-                # Очистити старі дані (залишити тільки header)
-                if current_rows > 1:
-                    self.logger.info("Clearing old data...")
-                    clear_range = f'A2:G{current_rows}'
-                    worksheet.batch_clear([clear_range])
-                    time.sleep(0.3)
-                
-                # Визначити діапазон
-                start_row = 2  # Після header
-                end_row = start_row + len(all_rows) - 1
-                
-                # Update одним range з USER_ENTERED для правильного форматування чисел
-                range_name = f'A{start_row}:G{end_row}'
-                worksheet.update(range_name, all_rows, value_input_option='USER_ENTERED')
-                
-                self.logger.info(f"✓ Competitors sheet updated: {len(all_rows)} RAW products")
-                
-                # Показати статистику
-                coleman_count = len(competitor_data.get('coleman', []))
-                onestop_count = len(competitor_data.get('onestopbedrooms', []))
-                afa_count = len(competitor_data.get('afastores', []))
-                
-                self.logger.info(f"  Coleman: {coleman_count}")
-                self.logger.info(f"  1StopBedrooms: {onestop_count}")
-                self.logger.info(f"  AFA Stores: {afa_count}")
-                
-                return len(all_rows)
-            else:
-                self.logger.warning("No competitor data to write!")
-                return 0
+            # Update headers (in case they changed)
+            worksheet.update('A1:K1', [headers], value_input_option='USER_ENTERED')
+            time.sleep(0.3)
+            
+            # Write all competitor data
+            start_row = 2
+            end_row = start_row + len(all_rows) - 1
+            range_name = f'A{start_row}:K{end_row}'
+            
+            self.logger.info(f"Writing {len(all_rows)} competitor products...")
+            worksheet.update(range_name, all_rows, value_input_option='USER_ENTERED')
+            
+            self.logger.info(f"✓ {sheet_name} sheet updated: {len(all_rows)} products")
+            
+            return len(all_rows)
             
         except Exception as e:
             self.logger.error(f"Failed to update Competitors sheet: {e}", exc_info=True)
             return 0
+    
     def batch_update_emma_mason_raw(self, scraped_products: List[Dict]) -> int:
         """
         ✅ DEBUG: Записати ВСІ RAW дані від Emma Mason scraper
