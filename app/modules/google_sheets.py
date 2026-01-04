@@ -920,8 +920,10 @@ class RepricerSheetsManager:
         """
         Batch оновлення для Emma Mason товарів
         
-        ✅ FIXED v3.0:
-        - URL normalization
+        ✅ UPDATED v4.0:
+        - URL normalization (як раніше)
+        - ID fallback (НОВИНКА!)
+        - Matching логіка: спочатку URL → потім ID
         - Price conversion
         - Batch history з SKU
         
@@ -942,49 +944,96 @@ class RepricerSheetsManager:
             worksheet = self.client.open_sheet(sheet_id, sheet_name)
             all_data = worksheet.get_all_values()
             
-            # ✅ Створити словник з НОРМАЛІЗОВАНИМИ URL + SKU
+            # ═══════════════════════════════════════════════════════════════
+            # ✅ НОВИНКА: Створити ДВА словники - для URL та для ID
+            # ═══════════════════════════════════════════════════════════════
             url_to_row = {}
+            id_to_row = {}
+            
             for idx, row in enumerate(all_data, start=1):
                 if len(row) > 5:  # F = index 5 (0-based)
                     sku = row[0] if len(row) > 0 else ''  # A = SKU
-                    url_raw = row[5].strip()  # F = Our URL
+                    url_raw = row[5].strip() if len(row) > 5 else ''  # F = Our URL
+                    emma_id = row[17].strip() if len(row) > 17 else ''  # R = ID from emmamason
+                    old_price = row[3] if len(row) > 3 else ''  # D = Our Sales Price
+                    
+                    # URL mapping (з нормалізацією)
                     if url_raw:
                         url_normalized = normalize_url(url_raw)
                         url_to_row[url_normalized] = {
                             'row_num': idx,
-                            'sku': sku,  # ✅ ЗБЕРЕГТИ SKU!
-                            'old_price': row[3] if len(row) > 3 else '',  # D = Our Sales Price
-                            'original_url': url_raw
+                            'sku': sku,
+                            'old_price': old_price,
+                            'original_url': url_raw,
+                            'emma_id': emma_id
+                        }
+                    
+                    # ✅ ID mapping (НОВИНКА!)
+                    if emma_id:
+                        id_to_row[emma_id] = {
+                            'row_num': idx,
+                            'sku': sku,
+                            'old_price': old_price,
+                            'original_url': url_raw,
+                            'emma_id': emma_id
                         }
             
-            self.logger.info(f"Loaded {len(url_to_row)} URLs from sheet (normalized)")
+            self.logger.info(f"Loaded {len(url_to_row)} URLs and {len(id_to_row)} IDs from sheet")
             
+            # ═══════════════════════════════════════════════════════════════
             # Знайти співпадіння та підготувати оновлення
+            # ═══════════════════════════════════════════════════════════════
             all_updates = []
             updated_count = 0
             history_records = []
+            
+            # Статистика matching
+            matched_by_url = 0
+            matched_by_id = 0
             no_match_count = 0
             price_conversion_errors = 0
             
             for product in scraped_products:
                 url_raw = product.get('url', '').strip()
-                emma_id = product.get('id', '')
+                emma_id = product.get('id', '').strip()
                 price_raw = product.get('price', '')
                 
-                if not url_raw:
+                # Перевірка що є хоча б URL або ID
+                if not url_raw and not emma_id:
                     no_match_count += 1
                     continue
                 
-                # ✅ Нормалізувати URL для matching
-                url_normalized = normalize_url(url_raw)
+                # ═══════════════════════════════════════════════════════════════
+                # ✅ КЛЮЧОВА ЛОГІКА: Спочатку URL → потім ID
+                # ═══════════════════════════════════════════════════════════════
+                row_info = None
+                matched_by = None
                 
-                if url_normalized not in url_to_row:
+                # КРОК 1: Спробувати знайти по URL
+                if url_raw:
+                    url_normalized = normalize_url(url_raw)
+                    if url_normalized in url_to_row:
+                        row_info = url_to_row[url_normalized]
+                        matched_by = 'URL'
+                        matched_by_url += 1
+                
+                # КРОК 2: Якщо не знайдено по URL - спробувати по ID
+                if not row_info and emma_id:
+                    if emma_id in id_to_row:
+                        row_info = id_to_row[emma_id]
+                        matched_by = 'ID'
+                        matched_by_id += 1
+                
+                # Якщо не знайдено ні по URL, ні по ID
+                if not row_info:
                     no_match_count += 1
                     continue
                 
-                row_info = url_to_row[url_normalized]
+                # ═══════════════════════════════════════════════════════════════
+                # Отримати дані з row_info
+                # ═══════════════════════════════════════════════════════════════
                 row_num = row_info['row_num']
-                sku = row_info['sku']  # ✅ ОТРИМАТИ SKU!
+                sku = row_info['sku']
                 old_price_str = row_info['old_price']
                 
                 # ✅ Конвертувати ціну
@@ -1003,17 +1052,22 @@ class RepricerSheetsManager:
                 
                 old_price = self._to_float(old_price_str)
                 
+                # ═══════════════════════════════════════════════════════════════
+                # Підготувати updates
+                # ═══════════════════════════════════════════════════════════════
+                
                 # Our Sales Price (D = 4)
                 all_updates.append({
                     'range': f'D{row_num}',
                     'values': [[new_price]]
                 })
                 
-                # ID from emmamason (R = 18)
-                all_updates.append({
-                    'range': f'R{row_num}',
-                    'values': [[emma_id]]
-                })
+                # ID from emmamason (R = 18) - оновити якщо є новий ID
+                if emma_id:
+                    all_updates.append({
+                        'range': f'R{row_num}',
+                        'values': [[emma_id]]
+                    })
                 
                 # Last update (Q = 17)
                 all_updates.append({
@@ -1026,24 +1080,38 @@ class RepricerSheetsManager:
                 # ✅ Зберегти для історії з SKU!
                 if abs(new_price - old_price) > 0.01:
                     history_records.append({
-                        'sku': sku,  # ✅ ДОДАНО SKU!
-                        'url': url_raw,
+                        'sku': sku,
+                        'url': url_raw or row_info.get('original_url', ''),
                         'old_price': old_price,
                         'new_price': new_price
                     })
             
-            # ✅ Звіт про matching
+            # ═══════════════════════════════════════════════════════════════
+            # ✅ ЗВІТ про matching (ПОКРАЩЕНИЙ!)
+            # ═══════════════════════════════════════════════════════════════
             self.logger.info("="*60)
             self.logger.info("EMMA MASON MATCHING RESULTS:")
             self.logger.info(f"  Total products from scraper: {len(scraped_products)}")
             self.logger.info(f"  URLs in sheet: {len(url_to_row)}")
-            self.logger.info(f"  Matched: {updated_count}")
-            self.logger.info(f"  No match: {no_match_count}")
-            self.logger.info(f"  Price conversion errors: {price_conversion_errors}")
-            self.logger.info(f"  Match rate: {updated_count/len(scraped_products)*100:.1f}%")
+            self.logger.info(f"  IDs in sheet: {len(id_to_row)}")
+            self.logger.info("")
+            self.logger.info(f"  ✅ Matched by URL: {matched_by_url}")
+            self.logger.info(f"  ✅ Matched by ID (fallback): {matched_by_id}")
+            self.logger.info(f"  ❌ No match: {no_match_count}")
+            
+            if price_conversion_errors > 0:
+                self.logger.warning(f"  ⚠️  Price conversion errors: {price_conversion_errors}")
+            
+            total_matched = matched_by_url + matched_by_id
+            if len(scraped_products) > 0:
+                match_rate = total_matched / len(scraped_products) * 100
+                self.logger.info(f"  Match rate: {match_rate:.1f}%")
+            
             self.logger.info("="*60)
             
+            # ═══════════════════════════════════════════════════════════════
             # Виконати batch update
+            # ═══════════════════════════════════════════════════════════════
             if all_updates:
                 self.logger.info(f"Executing batch update with {len(all_updates)} changes...")
                 
