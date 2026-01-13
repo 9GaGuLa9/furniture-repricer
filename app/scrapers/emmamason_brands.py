@@ -39,7 +39,8 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
         {"name": "Legacy Classic", "url": "brands-by-legacy-classic-kids~130028.html"},
         {"name": "Aspenhome Furniture", "url": "brands-by-aspenhome~129985.html"},
         {"name": "Steve Silver", "url": "brands-by-steve-silver~1242933.html"},
-        {"name": "Intercon", "url": "brands-by-intercon~130018.html"},
+        {"name": "Intercon furniture", "url": "brands-intercon-furniture.html"},
+        {"name": "by Intercon", "url": "brands-by-intercon~130018.html"},
     ]
     
     USER_AGENTS = [
