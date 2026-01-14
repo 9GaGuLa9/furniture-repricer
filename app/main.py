@@ -21,7 +21,7 @@ from .modules.competitors_tracker import CompetitorsMatchedTracker  # ← NEW!
 from .modules.pricing import PricingEngine, BatchPricingProcessor
 
 # Scrapers
-from .scrapers.emmamason_brands import EmmaMasonBrandsScraper
+from .scrapers.emmamason_smart_scraper import EmmaMasonBrandsScraper
 from .scrapers.coleman import ColemanScraper
 from .scrapers.onestopbedrooms import OneStopBedroomsScraper
 from .scrapers.afa import AFAScraper
@@ -254,7 +254,11 @@ class FurnitureRepricer:
                 'timeout': self.base_config.get('scrapers', {}).get('emmamason', {}).get('timeout', 45),
             }
             
-            emma_scraper = EmmaMasonBrandsScraper(config)
+            emma_scraper = EmmaMasonBrandsScraper(
+                config,
+                error_logger=self.error_logger,
+                telegram_bot=getattr(self, 'telegram_bot', None)  # Safe: буде None якщо немає
+            )
             emma_products = emma_scraper.scrape_all_brands()
             
             self.logger.info(f"Emma Mason scraped: {len(emma_products)} products")

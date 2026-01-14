@@ -7,6 +7,7 @@ test_*
 *.txt
 old_*
 *.xlsx
+*backup*
 
 # All JSON files (scraper results)
 *.json
