@@ -72,7 +72,9 @@ class AFAScraper(ScraperErrorMixin):
 
         if CURL_CFFI_AVAILABLE:
             self.session_type = 'curl_cffi'
-            self.impersonate = 'chrome110'
+            # ✅ ОНОВЛЕНО: Використовуємо найновішу версію Chrome для bypass Cloudflare
+            # chrome120, chrome119, chrome116 - новіші версії краще bypass Cloudflare
+            self.impersonate = 'chrome120'
             self.scraper = None
             logger.info(f"AFA Stores scraper initialized with curl_cffi (impersonate={self.impersonate})")
 
@@ -184,12 +186,24 @@ class AFAScraper(ScraperErrorMixin):
         url = f"{self.BASE_URL}/collections/{category_slug}/products.json"
         params = {'page': page}
 
+        # ✅ Headers для curl_cffi - важливо для bypass Cloudflare
+        headers = {
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': f'{self.BASE_URL}/collections/{category_slug}',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+        }
+
         for attempt in range(self.retry_attempts):
             try:
                 if self.session_type == 'curl_cffi':
                     response = curl_requests.get(
                         url,
                         params=params,
+                        headers=headers,
                         timeout=self.timeout,
                         impersonate=self.impersonate,
                         proxies=self.proxies
@@ -430,6 +444,14 @@ class AFAScraper(ScraperErrorMixin):
             'details': []
         }
 
+        # ✅ Headers для тестів
+        headers = {
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': self.BASE_URL,
+            'X-Requested-With': 'XMLHttpRequest',
+        }
+
         # Тест 1: Доступ до головної сторінки
         try:
             logger.info("Testing homepage access...")
@@ -437,6 +459,7 @@ class AFAScraper(ScraperErrorMixin):
             if self.session_type == 'curl_cffi':
                 resp = curl_requests.get(
                     self.BASE_URL,
+                    headers=headers,
                     timeout=self.timeout,
                     impersonate=self.impersonate,
                     proxies=self.proxies
@@ -467,6 +490,7 @@ class AFAScraper(ScraperErrorMixin):
                     resp = curl_requests.get(
                         test_url,
                         params={'page': 1},
+                        headers=headers,
                         timeout=self.timeout,
                         impersonate=self.impersonate,
                         proxies=self.proxies
@@ -493,74 +517,74 @@ class AFAScraper(ScraperErrorMixin):
         return results
 
 
-def scrape_afa(config: dict) -> List[Dict[str, str]]:
+def scrape_afa(config: dict, error_logger=None) -> List[Dict[str, str]]:
     """Головна функція для парсингу AFA Stores"""
-    scraper = AFAScraper(config)
+    scraper = AFAScraper(config, error_logger=error_logger)
     results = scraper.scrape_all_products()
     return results
 
 
-if __name__ == "__main__":
-    # Тестування
-    import logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s | %(levelname)-8s | %(message)s',
-        datefmt='%H:%M:%S'
-    )
+# if __name__ == "__main__":
+#     # Тестування
+#     import logging
+#     logging.basicConfig(
+#         level=logging.INFO,
+#         format='%(asctime)s | %(levelname)-8s | %(message)s',
+#         datefmt='%H:%M:%S'
+#     )
 
-    if not CURL_CFFI_AVAILABLE and not CLOUDSCRAPER_AVAILABLE:
-        print("\nERROR: Neither curl_cffi nor cloudscraper installed!")
-        print("\nPreferred: pip install curl-cffi")
-        print("Fallback: pip install cloudscraper")
-        print("\nWithout one of these, AFA scraper will fail due to Cloudflare protection.\n")
-        exit(1)
+#     if not CURL_CFFI_AVAILABLE and not CLOUDSCRAPER_AVAILABLE:
+#         print("\nERROR: Neither curl_cffi nor cloudscraper installed!")
+#         print("\nPreferred: pip install curl-cffi")
+#         print("Fallback: pip install cloudscraper")
+#         print("\nWithout one of these, AFA scraper will fail due to Cloudflare protection.\n")
+#         exit(1)
 
-    if CURL_CFFI_AVAILABLE:
-        print("\nUsing curl_cffi (best TLS fingerprint)")
-    else:
-        print("\nUsing cloudscraper (may not work on all systems)")
+#     if CURL_CFFI_AVAILABLE:
+#         print("\nUsing curl_cffi (best TLS fingerprint)")
+#     else:
+#         print("\nUsing cloudscraper (may not work on all systems)")
     
-    test_config = {
-        'delay_min': 1.0,
-        'delay_max': 2.0,
-        'retry_attempts': 3,
-        'timeout': 30
-    }
+#     test_config = {
+#         'delay_min': 1.0,
+#         'delay_max': 2.0,
+#         'retry_attempts': 3,
+#         'timeout': 30
+#     }
     
-    print("\n" + "="*60)
-    print("ТЕСТ AFA STORES SCRAPER (CATEGORY-BASED)")
-    print("="*60 + "\n")
+#     print("\n" + "="*60)
+#     print("ТЕСТ AFA STORES SCRAPER (CATEGORY-BASED)")
+#     print("="*60 + "\n")
     
-    results = scrape_afa(test_config)
+#     results = scrape_afa(test_config)
     
-    print("\n" + "="*60)
-    print(f"РЕЗУЛЬТАТ: {len(results)} товарів")
-    print("="*60)
+#     print("\n" + "="*60)
+#     print(f"РЕЗУЛЬТАТ: {len(results)} товарів")
+#     print("="*60)
     
-    if results:
-        # Показати статистику по виробниках
-        vendors = {}
-        for product in results:
-            vendor = product['vendor']
-            vendors[vendor] = vendors.get(vendor, 0) + 1
+#     if results:
+#         # Показати статистику по виробниках
+#         vendors = {}
+#         for product in results:
+#             vendor = product['vendor']
+#             vendors[vendor] = vendors.get(vendor, 0) + 1
         
-        print("\nПо виробниках:")
-        for vendor, count in vendors.items():
-            print(f"  {vendor}: {count} товарів")
+#         print("\nПо виробниках:")
+#         for vendor, count in vendors.items():
+#             print(f"  {vendor}: {count} товарів")
         
-        print("\nПерші 5 товарів:")
-        for i, product in enumerate(results[:5], 1):
-            print(f"\n{i}. SKU: {product['sku']}")
-            print(f"   Vendor: {product['vendor']}")
-            print(f"   Price: ${product['price']}")
-            if product.get('title'):
-                print(f"   Title: {product['title'][:50]}...")
-            if product.get('url'):
-                print(f"   URL: {product['url'][:60]}...")
-    else:
-        print("\n❌ Немає результатів")
-        print("\nПеревірте:")
-        print("1. Чи існує файл manufacturer_categories.json")
-        print("2. Чи Cloudflare не блокує ваш IP")
-        print("3. Логи вище для деталей")
+#         print("\nПерші 5 товарів:")
+#         for i, product in enumerate(results[:5], 1):
+#             print(f"\n{i}. SKU: {product['sku']}")
+#             print(f"   Vendor: {product['vendor']}")
+#             print(f"   Price: ${product['price']}")
+#             if product.get('title'):
+#                 print(f"   Title: {product['title'][:50]}...")
+#             if product.get('url'):
+#                 print(f"   URL: {product['url'][:60]}...")
+#     else:
+#         print("\n❌ Немає результатів")
+#         print("\nПеревірте:")
+#         print("1. Чи існує файл manufacturer_categories.json")
+#         print("2. Чи Cloudflare не блокує ваш IP")
+#         print("3. Логи вище для деталей")

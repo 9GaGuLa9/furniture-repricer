@@ -323,58 +323,58 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
         return self.stats.copy()
 
 
-def scrape_onestopbedrooms(config: dict) -> List[Dict[str, str]]:
+def scrape_onestopbedrooms(config: dict, error_logger=None) -> List[Dict[str, str]]:
     """Головна функція для парсингу 1StopBedrooms"""
-    scraper = OneStopBedroomsScraper(config)
+    scraper = OneStopBedroomsScraper(config, error_logger=error_logger)
     results = scraper.scrape_all_products()
     return results
 
 
-if __name__ == "__main__":
-    # Тестування
-    import logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s | %(levelname)-8s | %(message)s',
-        datefmt='%H:%M:%S'
-    )
+# if __name__ == "__main__":
+#     # Тестування
+#     import logging
+#     logging.basicConfig(
+#         level=logging.INFO,
+#         format='%(asctime)s | %(levelname)-8s | %(message)s',
+#         datefmt='%H:%M:%S'
+#     )
     
-    test_config = {
-        'delay_min': 1.0,
-        'delay_max': 2.0,
-        'retry_attempts': 3,
-        'timeout': 20
-    }
+#     test_config = {
+#         'delay_min': 1.0,
+#         'delay_max': 2.0,
+#         'retry_attempts': 3,
+#         'timeout': 20
+#     }
     
-    print("\n" + "="*60)
-    print("ТЕСТ 1STOPBEDROOMS SCRAPER (BRAND-BASED - FAST!)")
-    print("="*60 + "\n")
+#     print("\n" + "="*60)
+#     print("ТЕСТ 1STOPBEDROOMS SCRAPER (BRAND-BASED - FAST!)")
+#     print("="*60 + "\n")
     
-    results = scrape_onestopbedrooms(test_config)
+#     results = scrape_onestopbedrooms(test_config)
     
-    print("\n" + "="*60)
-    print(f"РЕЗУЛЬТАТ: {len(results)} товарів")
-    print("="*60)
+#     print("\n" + "="*60)
+#     print(f"РЕЗУЛЬТАТ: {len(results)} товарів")
+#     print("="*60)
     
-    if results:
-        # Показати статистику по виробниках
-        brands = {}
-        for product in results:
-            brand = product['brand']
-            if brand:
-                brands[brand] = brands.get(brand, 0) + 1
+#     if results:
+#         # Показати статистику по виробниках
+#         brands = {}
+#         for product in results:
+#             brand = product['brand']
+#             if brand:
+#                 brands[brand] = brands.get(brand, 0) + 1
         
-        print("\nПо виробниках:")
-        for brand, count in sorted(brands.items()):
-            print(f"  {brand}: {count} товарів")
+#         print("\nПо виробниках:")
+#         for brand, count in sorted(brands.items()):
+#             print(f"  {brand}: {count} товарів")
         
-        print("\nПерші 5 товарів:")
-        for i, product in enumerate(results[:5], 1):
-            print(f"\n{i}. SKU: {product['sku']}")
-            print(f"   Brand: {product['brand']}")
-            print(f"   Price: ${product['price']}")
-            print(f"   URL: {product['url'][:60]}...")
-    else:
-        print("\n❌ Немає результатів")
+#         print("\nПерші 5 товарів:")
+#         for i, product in enumerate(results[:5], 1):
+#             print(f"\n{i}. SKU: {product['sku']}")
+#             print(f"   Brand: {product['brand']}")
+#             print(f"   Price: ${product['price']}")
+#             print(f"   URL: {product['url'][:60]}...")
+#     else:
+#         print("\n❌ Немає результатів")
     
-    print("\n" + "="*60)
+#     print("\n" + "="*60)

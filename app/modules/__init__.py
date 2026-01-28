@@ -7,7 +7,7 @@ from .logger import get_logger, setup_logging, LogBlock
 from .google_sheets import GoogleSheetsClient, RepricerSheetsManager
 from .pricing import PricingEngine, BatchPricingProcessor
 from .sku_matcher import SKUMatcher
-from .config import get_config, Config
+# from .config import get_config, Config
 
 # ✅ NEW IMPORTS для ConfigManager + ErrorLogger
 from .config_manager import ConfigManager

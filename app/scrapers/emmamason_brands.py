@@ -377,45 +377,45 @@ def scrape_emmamason_brands(config: dict) -> List[Dict]:
     return results
 
 
-if __name__ == "__main__":
-    # Тестування
-    import logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s | %(levelname)-8s | %(message)s',
-        datefmt='%H:%M:%S'
-    )
+# if __name__ == "__main__":
+#     # Тестування
+#     import logging
+#     logging.basicConfig(
+#         level=logging.INFO,
+#         format='%(asctime)s | %(levelname)-8s | %(message)s',
+#         datefmt='%H:%M:%S'
+#     )
     
-    if not CURL_CFFI_AVAILABLE:
-        print("\n⚠️ Warning: curl_cffi not installed!")
-        print("Install: pip install curl-cffi")
-        print("Continuing with standard requests (may fail)\n")
+#     if not CURL_CFFI_AVAILABLE:
+#         print("\n⚠️ Warning: curl_cffi not installed!")
+#         print("Install: pip install curl-cffi")
+#         print("Continuing with standard requests (may fail)\n")
     
-    config = {
-        'delay_min': 2.0,
-        'delay_max': 4.0,
-        'retry_attempts': 3,
-        'timeout': 45
-    }
+#     config = {
+#         'delay_min': 2.0,
+#         'delay_max': 4.0,
+#         'retry_attempts': 3,
+#         'timeout': 45
+#     }
     
-    print("\n" + "="*60)
-    print("ТЕСТ EMMA MASON BRANDS SCRAPER v3.0 (OPTIMIZED)")
-    print("="*60 + "\n")
+#     print("\n" + "="*60)
+#     print("ТЕСТ EMMA MASON BRANDS SCRAPER v3.0 (OPTIMIZED)")
+#     print("="*60 + "\n")
     
-    results = scrape_emmamason_brands(config)
+#     results = scrape_emmamason_brands(config)
     
-    print("\n" + "="*60)
-    print(f"РЕЗУЛЬТАТ: {len(results)} products")
-    print("="*60)
+#     print("\n" + "="*60)
+#     print(f"РЕЗУЛЬТАТ: {len(results)} products")
+#     print("="*60)
     
-    if results:
-        print(f"\nSample (first 3):")
-        for i, p in enumerate(results[:3], 1):
-            print(f"\n{i}. ID: {p['id']}")
-            print(f"   Brand: {p['brand']}")
-            print(f"   Price: {p.get('price', 'N/A')}")
-            print(f"   URL: {p['url'][:60]}...")
-    else:
-        print("\n❌ No products scraped")
+#     if results:
+#         print(f"\nSample (first 3):")
+#         for i, p in enumerate(results[:3], 1):
+#             print(f"\n{i}. ID: {p['id']}")
+#             print(f"   Brand: {p['brand']}")
+#             print(f"   Price: {p.get('price', 'N/A')}")
+#             print(f"   URL: {p['url'][:60]}...")
+#     else:
+#         print("\n❌ No products scraped")
     
-    print("\n" + "="*60)
+#     print("\n" + "="*60)

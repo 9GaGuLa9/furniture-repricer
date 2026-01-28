@@ -110,7 +110,7 @@ class GoogleSheetsClient:
         except Exception as e:
             logger.error(f"Connection test failed: {e}")
             return False
-    
+
     def open_sheet(self, sheet_id: str, worksheet_name: str = None) -> gspread.Worksheet:
         """
         Відкрити таблицю
@@ -416,7 +416,38 @@ class RepricerSheetsManager:
         
         # Cache для row numbers (оптимізація rate limit)
         self.row_cache = {}
-    
+
+    def clear_filters(self, sheet_id: str, worksheet_name: str):
+        """
+        Зняти всі фільтри з аркуша
+        
+        Args:
+            sheet_id: ID таблиці
+            worksheet_name: Назва аркушу
+        """
+        try:
+            # Отримати worksheet
+            worksheet = self.client.open_sheet(sheet_id, worksheet_name)
+            
+            # Отримати worksheet ID (не те саме що sheet_id!)
+            worksheet_id = worksheet._properties['sheetId']
+            
+            # Підготувати запит для зняття фільтрів
+            requests = [{
+                'clearBasicFilter': {
+                    'sheetId': worksheet_id
+                }
+            }]
+            
+            # Виконати batch update
+            spreadsheet = self.client.client.open_by_key(sheet_id)
+            spreadsheet.batch_update({'requests': requests})
+            
+            logger.info(f"✓ Cleared filters on {worksheet_name}")
+            
+        except Exception as e:
+            # Якщо фільтрів немає, просто ігноруємо помилку
+            logger.debug(f"No filters to clear (or error): {e}")
     def get_main_data(self) -> List[Dict[str, Any]]:
         """
         Отримати дані з основної таблиці
@@ -635,6 +666,8 @@ class RepricerSheetsManager:
         sheet_id = self.config['main_sheet']['id']
         sheet_name = self.config['main_sheet']['name']
         
+        self.clear_filters(sheet_id, sheet_name)
+
         # Спочатку завантажити всі row numbers одним запитом
         if not self.row_cache:
             self.logger.info("Building SKU row cache...")

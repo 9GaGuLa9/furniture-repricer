@@ -261,53 +261,53 @@ class ColemanScraper(ScraperErrorMixin):
         return self.stats.copy()
 
 
-def scrape_coleman(config: dict) -> List[Dict[str, str]]:
+def scrape_coleman(config: dict, error_logger=None) -> List[Dict[str, str]]:
     """Головна функція для парсингу Coleman Furniture"""
-    scraper = ColemanScraper(config)
+    scraper = ColemanScraper(config, error_logger=error_logger)
     results = scraper.scrape_all_products()
     return results
 
 
-if __name__ == "__main__":
-    # Тестування
-    import logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s | %(levelname)-8s | %(message)s',
-        datefmt='%H:%M:%S'
-    )
+# if __name__ == "__main__":
+#     # Тестування
+#     import logging
+#     logging.basicConfig(
+#         level=logging.INFO,
+#         format='%(asctime)s | %(levelname)-8s | %(message)s',
+#         datefmt='%H:%M:%S'
+#     )
     
-    test_config = {
-        'delay_min': 0.5,
-        'delay_max': 1.5,
-        'retry_attempts': 3,
-        'timeout': 20
-    }
+#     test_config = {
+#         'delay_min': 0.5,
+#         'delay_max': 1.5,
+#         'retry_attempts': 3,
+#         'timeout': 20
+#     }
     
-    print("\n" + "="*60)
-    print("ТЕСТ COLEMAN FURNITURE SCRAPER (3 MANUFACTURERS)")
-    print("="*60 + "\n")
+#     print("\n" + "="*60)
+#     print("ТЕСТ COLEMAN FURNITURE SCRAPER (3 MANUFACTURERS)")
+#     print("="*60 + "\n")
     
-    results = scrape_coleman(test_config)
+#     results = scrape_coleman(test_config)
     
-    print("\n" + "="*60)
-    print(f"РЕЗУЛЬТАТ: {len(results)} товарів")
-    print("="*60)
+#     print("\n" + "="*60)
+#     print(f"РЕЗУЛЬТАТ: {len(results)} товарів")
+#     print("="*60)
     
-    if results:
-        # Показати статистику по виробниках
-        manufacturers = {}
-        for product in results:
-            mfr = product['manufacturer']
-            manufacturers[mfr] = manufacturers.get(mfr, 0) + 1
+#     if results:
+#         # Показати статистику по виробниках
+#         manufacturers = {}
+#         for product in results:
+#             mfr = product['manufacturer']
+#             manufacturers[mfr] = manufacturers.get(mfr, 0) + 1
         
-        print("\nПо виробниках:")
-        for mfr, count in manufacturers.items():
-            print(f"  {mfr}: {count} товарів")
+#         print("\nПо виробниках:")
+#         for mfr, count in manufacturers.items():
+#             print(f"  {mfr}: {count} товарів")
         
-        print("\nПерші 5 товарів:")
-        for i, product in enumerate(results[:5], 1):
-            print(f"\n{i}. SKU: {product['sku']}")
-            print(f"   Manufacturer: {product['manufacturer']}")
-            print(f"   Price: ${product['price']}")
-            print(f"   URL: {product['url'][:60]}...")
+#         print("\nПерші 5 товарів:")
+#         for i, product in enumerate(results[:5], 1):
+#             print(f"\n{i}. SKU: {product['sku']}")
+#             print(f"   Manufacturer: {product['manufacturer']}")
+#             print(f"   Price: ${product['price']}")
+#             print(f"   URL: {product['url'][:60]}...")

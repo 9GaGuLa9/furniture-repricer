@@ -3,11 +3,12 @@ based/
 backup*/
 **output/
 *.bat
-test_*
+*test*
 *.txt
 old_*
 *.xlsx
 *backup*
+*else*
 
 # All JSON files (scraper results)
 *.json

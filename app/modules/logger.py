@@ -161,43 +161,6 @@ class LogBlock:
 
 
 if __name__ == "__main__":
-    # Тестування
-    print("Testing logger with log_level support...")
-    print()
-    
-    # Тест 1: INFO level (default)
-    print("=" * 60)
-    print("TEST 1: INFO level (default)")
-    print("=" * 60)
-    logger1 = setup_logging(level='INFO')
-    logger1.debug("This is DEBUG - should NOT appear in console")
-    logger1.info("This is INFO - should appear")
-    logger1.warning("This is WARNING - should appear")
-    
-    print()
-    
-    # Тест 2: DEBUG level
-    print("=" * 60)
-    print("TEST 2: DEBUG level")
-    print("=" * 60)
-    logger2 = setup_logging(level='DEBUG')
-    logger2.debug("This is DEBUG - should appear now!")
-    logger2.info("This is INFO")
-    
-    print()
-    
-    # Тест 3: WARNING level
-    print("=" * 60)
-    print("TEST 3: WARNING level")
-    print("=" * 60)
-    logger3 = setup_logging(level='WARNING')
-    logger3.info("This is INFO - should NOT appear")
-    logger3.warning("This is WARNING - should appear")
-    logger3.error("This is ERROR - should appear")
-    
-    print()
-    print("✅ Logger tests completed!")
-    
     # Показати де файл
     log_dir = Path(__file__).parent.parent.parent / "logs"
     log_file = log_dir / f"repricer_{datetime.now().strftime('%Y-%m-%d')}.log"

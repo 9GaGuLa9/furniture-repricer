@@ -1,10 +1,11 @@
 """
-Emma Mason Algolia API Scraper v5.1
+Emma Mason Algolia API Scraper v5.1 - FIXED
 ✅ Автоматичний обхід pagination limit (1000 товарів)
 ✅ Розбиття великих брендів через collection_style facets
 ✅ Рекурсивне розбиття якщо collection_style >1000
 ✅ Чистий JSON без HTML parsing
 ✅ 100% всіх товарів для всіх брендів
+✅ ВИПРАВЛЕНО: Правильна обробка expired API key (400/403 errors)
 """
 
 import time
@@ -43,6 +44,11 @@ except ImportError:
 logger = logging.getLogger("emmamason_algolia")
 
 
+class AlgoliaAPIKeyExpired(Exception):
+    """Exception коли Algolia API key expired або invalid"""
+    pass
+
+
 class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
     """
     Scraper для Emma Mason через Algolia Search API
@@ -52,7 +58,7 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
     # Algolia API Configuration
     ALGOLIA_URL = "https://ctz7lv7pje-dsn.algolia.net/1/indexes/*/queries"
     ALGOLIA_APP_ID = "CTZ7LV7PJE"
-    ALGOLIA_API_KEY = "MmQ5Yjc2NjZhMjcyMDM3YWM5YjM0ZTM0NWMyNjExNzkyZmNlMzgzZWFjMTNkODkxYjRkNTEyY2EwMTk1MmFhYXRhZ0ZpbHRlcnM9JnZhbGlkVW50aWw9MTc2ODM5NjkyNg=="
+    ALGOLIA_API_KEY = "MjgzMmViMDZiYmYzZTA4YTY2NjhkYjNkMjAyMzUxYmE5Y2Y4MzYwYzZmMmRiODU0NzQxMmY0YWFmNDM3YjllZHRhZ0ZpbHRlcnM9JnZhbGlkVW50aWw9MTc2OTUxMTczNw=="
     INDEX_NAME = "magento2_emmamason_products"
     
     # Pagination limit
@@ -155,7 +161,15 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         return '&'.join([f"{k}={quote(str(v))}" for k, v in params.items()])
     
     def _fetch_algolia(self, params_string: str) -> Optional[Dict]:
-        """Виконати запит до Algolia API"""
+        """
+        Виконати запит до Algolia API
+        
+        Returns:
+            Response data або None
+        
+        Raises:
+            AlgoliaAPIKeyExpired: Якщо API key expired (400/403)
+        """
         for attempt in range(1, self.retry_attempts + 1):
             try:
                 headers = {
@@ -179,16 +193,46 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
                     headers=headers, timeout=self.timeout
                 )
                 
+                # ═══════════════════════════════════════════════════════
+                # ✅ КРИТИЧНО: Перевірка на expired key
+                # ═══════════════════════════════════════════════════════
                 if response.status_code == 200:
                     return response.json()
+                
+                elif response.status_code in [400, 403]:
+                    # API key expired або invalid
+                    logger.error(f"❌ API key issue - Status {response.status_code}")
+                    logger.error(f"Response: {response.text[:200]}")
+                    
+                    # Викинути exception для автоматичного refresh
+                    raise AlgoliaAPIKeyExpired(
+                        f"API key expired or invalid (status {response.status_code})"
+                    )
+                
                 else:
                     logger.warning(f"Status {response.status_code} (attempt {attempt})")
-                    time.sleep(2)
+                    if attempt < self.retry_attempts:
+                        time.sleep(2)
+            
+            except AlgoliaAPIKeyExpired:
+                # Передати exception вгору
+                raise
             
             except Exception as e:
+                error_msg = str(e).lower()
+                
+                # Перевірити чи це може бути expired key
+                if any(keyword in error_msg for keyword in [
+                    'forbidden', 'unauthorized', 'invalid api key'
+                ]):
+                    raise AlgoliaAPIKeyExpired(f"API authentication error: {e}")
+                
                 logger.error(f"Request error (attempt {attempt}): {e}")
-                time.sleep(2)
+                if attempt < self.retry_attempts:
+                    time.sleep(2)
         
+        # Якщо всі спроби невдалі
+        logger.error("All retry attempts failed")
         return None
     
     def _get_facets(self, filters: List[Tuple[str, str]], 
@@ -229,94 +273,66 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
                     'name': hit.get('name'),
                     'url': hit.get('url'),
                     'brand': brand,
+                    'price': self._extract_price(hit),
+                    'in_stock': hit.get('in_stock'),
+                    'categories': hit.get('categories', []),
+                    'collection_style': hit.get('collection_style'),
                     'scraped_at': datetime.now().isoformat()
                 }
-                
-                # Ціна
-                price_data = hit.get('price', {})
-                if isinstance(price_data, dict):
-                    usd_price = price_data.get('USD', {})
-                    if isinstance(usd_price, dict):
-                        product['price'] = str(usd_price.get('default'))
-                    else:
-                        product['price'] = None
-                else:
-                    product['price'] = None
                 
                 products.append(product)
             
             except Exception as e:
-                logger.debug(f"Failed to parse hit: {e}")
+                logger.debug(f"Failed to parse hit {hit.get('objectID')}: {e}")
                 continue
         
         return products
     
+    def _extract_price(self, hit: Dict) -> Optional[str]:
+        """Витягти ціну з hit"""
+        try:
+            price_data = hit.get('price', {})
+            
+            if isinstance(price_data, dict):
+                usd = price_data.get('USD', {})
+                
+                if isinstance(usd, dict):
+                    default_price = usd.get('default')
+                    
+                    if default_price is not None:
+                        return str(default_price)
+            
+            return None
+        
+        except Exception as e:
+            logger.debug(f"Price extraction error: {e}")
+            return None
+    
     def _split_price_range(self, min_price: float, max_price: float) -> List[Tuple[float, float]]:
         """
         Розбити price range на менші діапазони
-        
-        Args:
-            min_price: Початкова ціна
-            max_price: Кінцева ціна
-        
-        Returns:
-            Список (min, max) кортежів
         """
-        range_size = max_price - min_price
-        step = range_size / 5  # Розбити на 5 частин
+        # Якщо діапазон малий - просто розділити навпіл
+        if max_price - min_price <= 500:
+            mid = (min_price + max_price) / 2
+            return [(min_price, mid), (mid, max_price)]
         
+        # Інакше - розбити на 5 частин
+        step = (max_price - min_price) / 5
         ranges = []
+        
         for i in range(5):
-            sub_min = min_price + (i * step)
-            sub_max = min_price + ((i + 1) * step)
-            ranges.append((sub_min, sub_max))
+            start = min_price + (i * step)
+            end = min_price + ((i + 1) * step)
+            ranges.append((start, end))
         
         return ranges
-    
-    def _scrape_simple_from_data(self, data: Dict, brand: str, seen_ids: Set[str]) -> List[Dict]:
-        """
-        Scraping hits з готових даних (одна сторінка)
-        
-        Args:
-            data: Algolia response data
-            brand: Назва бренду
-            seen_ids: Set для дедуплікації
-        
-        Returns:
-            Список товарів
-        """
-        hits = data['results'][0].get('hits', [])
-        
-        if not hits:
-            return []
-        
-        # Parse
-        products = self._parse_hits(hits, brand)
-        
-        # Дедуплікація
-        unique_products = []
-        for product in products:
-            if product['id'] not in seen_ids:
-                seen_ids.add(product['id'])
-                unique_products.append(product)
-        
-        return unique_products
     
     def _scrape_price_range(self, filters: List[Tuple[str, str]], 
                            brand: str, seen_ids: Set[str],
                            min_price: float, max_price: float) -> List[Dict]:
         """
-        Scraping з price range та повною пагінацією
-        
-        Args:
-            filters: Базові фільтри
-            brand: Назва бренду
-            seen_ids: Set для дедуплікації
-            min_price: Мін ціна
-            max_price: Макс ціна
-        
-        Returns:
-            Список товарів
+        Scrape товари в price range
         """
         all_products = []
         page = 0
@@ -339,9 +355,10 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
             if not hits:
                 break
             
-            # Parse і дедуплікація
+            # Parse
             products = self._parse_hits(hits, brand)
             
+            # Дедуплікація
             new_count = 0
             for product in products:
                 if product['id'] not in seen_ids:
@@ -349,7 +366,7 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
                     all_products.append(product)
                     new_count += 1
             
-            logger.debug(f"      Page {page}: {new_count} new")
+            logger.debug(f"        Page {page}: {new_count} new")
             
             # Перевірити чи є ще
             if len(hits) < self.hits_per_page:
@@ -361,13 +378,13 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         return all_products
     
     def _scrape_with_filters(self, filters: List[Tuple[str, str]], 
-                            brand: str, seen_ids: Set[str], depth: int = 0) -> List[Dict]:
+                            brand: str, seen_ids: Set[str], 
+                            depth: int = 0) -> List[Dict]:
         """
-        Scraping з конкретними фільтрами
-        Якщо результатів >1000, автоматично розбиває через price ranges
+        Розумний scraping з автоматичним розбиттям
         
         Args:
-            filters: [(facet_name, value), ...]
+            filters: Поточні фільтри
             brand: Назва бренду
             seen_ids: Set для дедуплікації
             depth: Глибина рекурсії (захист від нескінченної рекурсії)
@@ -527,7 +544,12 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         return products
     
     def scrape_all_brands(self) -> List[Dict]:
-        """Scrape всіх брендів"""
+        """
+        Scrape всіх брендів
+        
+        Raises:
+            AlgoliaAPIKeyExpired: Якщо API key expired
+        """
         all_products = []
         seen_ids = set()
         
@@ -539,12 +561,21 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
                     products = self.scrape_brand(brand, seen_ids)
                     all_products.extend(products)
                     
+                except AlgoliaAPIKeyExpired:
+                    # Передати exception вгору для auto-refresh
+                    logger.error(f"API key expired while processing {brand}")
+                    raise
+                
                 except Exception as e:
                     self.log_scraping_error(error=e, context={'brand': brand})
                     logger.error(f"Failed {brand}: {e}")
                     continue
                 
                 time.sleep(random.uniform(1, 2))
+        
+        except AlgoliaAPIKeyExpired:
+            # Передати вгору
+            raise
         
         except Exception as e:
             self.log_scraping_error(error=e, context={'stage': 'main'})
@@ -577,26 +608,26 @@ def scrape_emmamason_algolia(config: dict, error_logger=None) -> List[Dict]:
     return scraper.scrape_all_brands()
 
 
-if __name__ == "__main__":
-    import logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s | %(levelname)-8s | %(message)s',
-        datefmt='%H:%M:%S'
-    )
+# if __name__ == "__main__":
+#     import logging
+#     logging.basicConfig(
+#         level=logging.INFO,
+#         format='%(asctime)s | %(levelname)-8s | %(message)s',
+#         datefmt='%H:%M:%S'
+#     )
     
-    config = {
-        'delay_min': 0.5,
-        'delay_max': 1.5,
-        'retry_attempts': 3,
-        'timeout': 30,
-        'hits_per_page': 1000
-    }
+#     config = {
+#         'delay_min': 0.5,
+#         'delay_max': 1.5,
+#         'retry_attempts': 3,
+#         'timeout': 30,
+#         'hits_per_page': 1000
+#     }
     
-    print("\n" + "="*60)
-    print("ТЕСТ ALGOLIA SCRAPER v5.1 (Smart Pagination)")
-    print("="*60 + "\n")
+#     print("\n" + "="*60)
+#     print("ТЕСТ ALGOLIA SCRAPER v5.1 (Smart Pagination)")
+#     print("="*60 + "\n")
     
-    results = scrape_emmamason_algolia(config)
+#     results = scrape_emmamason_algolia(config)
     
-    print(f"\n✅ РЕЗУЛЬТАТ: {len(results)} products")
+#     print(f"\n✅ РЕЗУЛЬТАТ: {len(results)} products")

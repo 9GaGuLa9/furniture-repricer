@@ -1,6 +1,10 @@
 """
 Furniture Repricer - Main Application
-FIXED VERSION v5.0 with ConfigManager + ErrorLogger
+FIXED VERSION v5.1 - CORRECTED "Used In Pricing" logic
+
+КРИТИЧНЕ ВИПРАВЛЕННЯ:
+✅ "Used In Pricing" = True ТІЛЬКИ для товару з найнижчою ціною серед ВСІХ конкурентів
+✅ Перевіряє calculation_method: якщо 'competitor_capped_at_floor' або 'competitor_capped_at_max' → Used = False
 """
 
 import sys
@@ -17,7 +21,7 @@ from .modules.config_reader import GoogleSheetsConfigReader
 from .modules.config_manager import ConfigManager
 from .modules.error_logger import ErrorLogger
 from .modules.sku_matcher import SKUMatcher
-from .modules.competitors_tracker import CompetitorsMatchedTracker  # ← NEW!
+from .modules.competitors_tracker import CompetitorsMatchedTracker
 from .modules.pricing import PricingEngine, BatchPricingProcessor
 
 # Scrapers
@@ -144,7 +148,7 @@ class FurnitureRepricer:
         self.sku_matcher = SKUMatcher(sku_config)
         
         # ═══════════════════════════════════════════════════════════
-        # Competitors Matched Tracker - NEW!
+        # Competitors Matched Tracker
         # ═══════════════════════════════════════════════════════════
         self.matched_tracker = CompetitorsMatchedTracker()
         
@@ -189,53 +193,51 @@ class FurnitureRepricer:
             matched_products = self._match_products(client_products, competitor_data)
             
             # 5. Розрахувати ціни
-            products_with_prices = self._calculate_prices(matched_products)
+            priced_products = self._calculate_prices(matched_products)
+            
+            # ═══════════════════════════════════════════════════════════
+            # ✅ NEW STEP 5.5: Оновити "Used In Pricing" на основі фактично використаної ціни
+            # ═══════════════════════════════════════════════════════════
+            self._update_used_in_pricing(priced_products)
             
             # 6. Оновити Google Sheets
             if not self.runtime_config.get('dry_run'):
-                if not self.runtime_config.get('test_mode'):
-                    updated = self._update_sheets(products_with_prices)
-                    self.logger.info(f"✓ Updated {updated} products")
-                else:
-                    self.logger.info("🧪 Test mode: skipping sheet updates")
+                updated = self._update_sheets(priced_products)
             else:
-                self.logger.info("🔵 Dry run: skipping sheet updates")
+                self.logger.info("DRY RUN: Skipping Google Sheets update")
+                updated = 0
             
             # 7. Статистика
             duration = time.time() - start_time
-            self._print_statistics(duration, len(client_products), len(products_with_prices))
+            self._print_statistics(duration, len(client_products), updated)
             
-            self.logger.info("="*60)
-            self.logger.info("✓ REPRICER COMPLETED SUCCESSFULLY")
+            self.logger.info("\n" + "="*60)
+            self.logger.info("✅ REPRICER COMPLETED SUCCESSFULLY")
             self.logger.info("="*60)
             
         except Exception as e:
-            self.logger.error(f"Repricer failed: {e}", exc_info=True)
-            
-            # Log error to sheets якщо enabled
-            if self.error_logger:
-                self.error_logger.log_error("FurnitureRepricer", e, context={'stage': 'main_run'})
-            
+            self.logger.error(f"❌ Repricer failed: {e}", exc_info=True)
             raise
     
     def _load_client_data(self) -> List[Dict]:
         """Завантажити дані клієнта з Google Sheets"""
-        self.logger.info("Loading client data from Google Sheets...")
+        self.logger.info("\n" + "="*60)
+        self.logger.info("LOADING CLIENT DATA FROM GOOGLE SHEETS")
+        self.logger.info("="*60)
         
-        products = self.sheets_manager.get_main_data()
+        # Завантажити всі products
+        client_products = self.sheets_manager.get_main_data()
         
-        # ═══════════════════════════════════════════════════════════
-        # NEW: Зберегти URLs наших товарів для matched tracking
-        # ═══════════════════════════════════════════════════════════
-        for product in products:
+        # ✅ NEW: Зберегти URLs наших товарів для matched tracking
+        for product in client_products:
             sku = product.get('sku')
-            url = product.get('url')  # Змінити якщо поле називається інакше
-            if sku:
+            url = product.get('our_url')  # ✅ FIXED: 'our_url' а не 'url'
+            if sku and url:
                 self.matched_tracker.add_our_product(sku, url)
         
-        self.logger.info(f"✓ Loaded {len(products)} products from sheet")
+        self.logger.info(f"Loaded {len(client_products)} products from Google Sheets")
         
-        return products
+        return client_products
     
     def _scrape_and_update_emma_mason(self):
         """Scrape Emma Mason та оновити Google Sheets"""
@@ -280,97 +282,69 @@ class FurnitureRepricer:
                 self.error_logger.log_error("EmmaMasonScraper", e)
     
     def _scrape_competitors(self) -> Dict[str, List[Dict]]:
-        """Scrape всіх конкурентів"""
-        competitor_data = {
-            'coleman': [],
-            'onestopbedrooms': [],
-            'afastores': []
-        }
+        """Scrape дані з конкурентів"""
+        self.logger.info("\n" + "="*60)
+        self.logger.info("SCRAPING COMPETITORS")
+        self.logger.info("="*60)
+        
+        competitor_data = {}
         
         # Coleman
         if self.config_manager.is_enabled('scraper_coleman'):
-            self.logger.info("\n" + "="*60)
-            self.logger.info("SCRAPING COLEMAN")
-            self.logger.info("="*60)
+            self.logger.info("\n--- Coleman Furniture ---")
+            scraper_config = self.config_manager.get_scraper_config('coleman')
+            
+            scraper = ColemanScraper(
+                config=scraper_config,
+                error_logger=self.error_logger
+            )
             
             try:
-                scraper_config = self.config_manager.get_scraper_config('coleman')
-                
-                config = {
-                    'delay_min': self.base_config.get('scrapers', {}).get('coleman', {}).get('delay_min', 0.5),
-                    'delay_max': self.base_config.get('scrapers', {}).get('coleman', {}).get('delay_max', 1.5),
-                    'retry_attempts': 3,
-                    'timeout': self.base_config.get('scrapers', {}).get('coleman', {}).get('timeout', 20),
-                }
-                
-                coleman_scraper = ColemanScraper(config)
-                competitor_data['coleman'] = coleman_scraper.scrape_all_products()
-                
-                self.logger.info(f"Coleman: {len(competitor_data['coleman'])} products")
-                
+                products = scraper.scrape_all_products()
+                competitor_data['coleman'] = products
+                self.logger.info(f"✓ Coleman: {len(products)} products")
             except Exception as e:
-                self.logger.error(f"Coleman scraping failed: {e}", exc_info=True)
-                
-                if self.error_logger:
-                    self.error_logger.log_error("ColemanScraper", e)
-        else:
-            self.logger.info("Coleman scraper DISABLED in config")
+                self.logger.error(f"Coleman scraper failed: {e}")
+                competitor_data['coleman'] = []
         
         # 1StopBedrooms
         if self.config_manager.is_enabled('scraper_onestopbedrooms'):
-            self.logger.info("\n" + "="*60)
-            self.logger.info("SCRAPING 1STOPBEDROOMS")
-            self.logger.info("="*60)
+            self.logger.info("\n--- 1StopBedrooms ---")
+            scraper_config = self.config_manager.get_scraper_config('onestopbedrooms')
+            
+            scraper = OneStopBedroomsScraper(
+                config=scraper_config,
+                error_logger=self.error_logger
+            )
             
             try:
-                config = {
-                    'delay_min': self.base_config.get('scrapers', {}).get('onestopbedrooms', {}).get('delay_min', 1.0),
-                    'delay_max': self.base_config.get('scrapers', {}).get('onestopbedrooms', {}).get('delay_max', 3.0),
-                    'retry_attempts': 3,
-                    'timeout': self.base_config.get('scrapers', {}).get('onestopbedrooms', {}).get('timeout', 20),
-                }
-                
-                onestop_scraper = OneStopBedroomsScraper(config)
-                competitor_data['onestopbedrooms'] = onestop_scraper.scrape_all_products()
-                
-                self.logger.info(f"1StopBedrooms: {len(competitor_data['onestopbedrooms'])} products")
-                
+                products = scraper.scrape_all_products()
+                competitor_data['onestopbedrooms'] = products
+                self.logger.info(f"✓ 1StopBedrooms: {len(products)} products")
             except Exception as e:
-                self.logger.error(f"1StopBedrooms scraping failed: {e}", exc_info=True)
-                
-                if self.error_logger:
-                    self.error_logger.log_error("OneStopBedroomsScraper", e)
-        else:
-            self.logger.info("1StopBedrooms scraper DISABLED in config")
+                self.logger.error(f"1StopBedrooms scraper failed: {e}")
+                competitor_data['onestopbedrooms'] = []
         
         # AFA Stores
         if self.config_manager.is_enabled('scraper_afastores'):
-            self.logger.info("\n" + "="*60)
-            self.logger.info("SCRAPING AFA STORES")
-            self.logger.info("="*60)
+            self.logger.info("\n--- AFA Stores ---")
+            scraper_config = self.config_manager.get_scraper_config('afastores')
+            
+            scraper = AFAScraper(
+                config=scraper_config,
+                error_logger=self.error_logger
+            )
             
             try:
-                config = {
-                    'delay_min': self.base_config.get('scrapers', {}).get('afa', {}).get('delay_min', 1.0),
-                    'delay_max': self.base_config.get('scrapers', {}).get('afa', {}).get('delay_max', 2.0),
-                    'retry_attempts': 3,
-                    'timeout': self.base_config.get('scrapers', {}).get('afa', {}).get('timeout', 30),
-                }
-                
-                afa_scraper = AFAScraper(config)
-                competitor_data['afastores'] = afa_scraper.scrape_all_products()
-                
-                self.logger.info(f"AFA Stores: {len(competitor_data['afastores'])} products")
-                
+                products = scraper.scrape_all_products()
+                competitor_data['afastores'] = products
+                self.logger.info(f"✓ AFA Stores: {len(products)} products")
             except Exception as e:
-                self.logger.error(f"AFA Stores scraping failed: {e}", exc_info=True)
-                
-                if self.error_logger:
-                    self.error_logger.log_error("AFAScraper", e)
-        else:
-            self.logger.info("AFA Stores scraper DISABLED in config")
+                self.logger.error(f"AFA Stores scraper failed: {e}")
+                competitor_data['afastores'] = []
         
-        self.competitor_data = competitor_data
+        total = sum(len(v) for v in competitor_data.values())
+        self.logger.info(f"\nTotal competitor products: {total}")
         
         return competitor_data
     
@@ -385,8 +359,7 @@ class FurnitureRepricer:
         """
         Зіставити товар з competitor і відстежити результат
         
-        NEW METHOD: Використовує find_best_match замість find_matching_product
-        Знаходить ВСІ matches → вибирає найкращу ціну → відстежує всі результати
+        ✅ UPDATED: Всі matches позначаємо used=False (буде оновлено пізніше)
         
         Args:
             product: Наш товар (буде оновлено з competitor даними)
@@ -409,18 +382,18 @@ class FurnitureRepricer:
             source=source
         )
         
-        # Track ALL matches (навіть ті що не обрані)
+        # Track ALL matches з used=False (буде оновлено в _update_used_in_pricing)
         for match in all_matches:
             comp_sku = match.get('sku')
             self.matched_tracker.track_match(
                 source=source,
                 competitor_sku=comp_sku,
                 our_sku=our_sku,
-                used=False  # Спочатку всі not used
+                used=False  # ✅ ЗМІНЕНО: Спочатку всі False
             )
         
         # ═══════════════════════════════════════════════════════════
-        # Знайти BEST match (найнижча ціна)
+        # Знайти BEST match (найнижча ціна для цього конкурента)
         # ═══════════════════════════════════════════════════════════
         best_match = self.sku_matcher.find_best_match(
             our_sku,
@@ -431,18 +404,8 @@ class FurnitureRepricer:
         )
         
         if best_match:
-            best_sku = best_match.get('sku')
-            
-            # Mark as USED in pricing
-            self.matched_tracker.track_match(
-                source=source,
-                competitor_sku=best_sku,
-                our_sku=our_sku,
-                used=True  # ✓ Цей обрано!
-            )
-            
-            # Зберегти в product
-            product[f'{site_prefix}_sku'] = best_sku
+            # Зберегти в product (але НЕ позначати used=True!)
+            product[f'{site_prefix}_sku'] = best_match.get('sku')
             product[f'{site_prefix}_price'] = best_match.get('price')
             product[f'{site_prefix}_url'] = best_match.get('url')
             
@@ -470,7 +433,7 @@ class FurnitureRepricer:
                 continue
             
             # ═══════════════════════════════════════════════════════
-            # Coleman - NEW: використовує find_best_match + tracking
+            # Coleman
             # ═══════════════════════════════════════════════════════
             if self._match_and_track_competitor(
                 product, 
@@ -482,7 +445,7 @@ class FurnitureRepricer:
                 match_stats['coleman'] += 1
             
             # ═══════════════════════════════════════════════════════
-            # 1StopBedrooms - NEW: використовує find_best_match + tracking
+            # 1StopBedrooms
             # ═══════════════════════════════════════════════════════
             if self._match_and_track_competitor(
                 product, 
@@ -494,7 +457,7 @@ class FurnitureRepricer:
                 match_stats['onestopbedrooms'] += 1
             
             # ═══════════════════════════════════════════════════════
-            # AFA Stores - NEW: використовує find_best_match + tracking
+            # AFA Stores
             # ═══════════════════════════════════════════════════════
             if self._match_and_track_competitor(
                 product, 
@@ -599,7 +562,6 @@ class FurnitureRepricer:
             }
             
             # ✅ КРИТИЧНО: Додати competitor дані якщо є!
-            # Без цього batch_update_all не може записати competitor ціни в стовпці G-L
             if product.get('site1_price'):
                 prices_dict['site1_price'] = product.get('site1_price')
                 prices_dict['site1_url'] = product.get('site1_url', '')
@@ -631,6 +593,88 @@ class FurnitureRepricer:
         
         return filtered_products
     
+    def _update_used_in_pricing(self, products: List[Dict]):
+        """
+        ✅ NEW METHOD: Оновити "Used In Pricing" на основі фактично використаної ціни
+        
+        Логіка:
+        1. Для кожного товару перевірити pricing_metadata
+        2. Якщо calculation_method == 'competitor_based':
+           - Знайти який конкурент має lowest_competitor price
+           - Встановити used=True ТІЛЬКИ для цього товару
+        3. Якщо calculation_method == 'competitor_capped_at_floor' або 'competitor_capped_at_max':
+           - Всі товари залишаються used=False (ціна обмежена, а не використана)
+        """
+        self.logger.info("\n" + "="*60)
+        self.logger.info("UPDATING 'Used In Pricing' FLAGS")
+        self.logger.info("="*60)
+        
+        updated_count = 0
+        
+        for product in products:
+            metadata = product.get('pricing_metadata', {})
+            calculation_method = metadata.get('calculation_method')
+            
+            # ✅ КРИТИЧНО: Тільки якщо використана ціна конкурента БЕЗ обмежень
+            if calculation_method == 'competitor_based':
+                lowest_competitor = metadata.get('lowest_competitor')
+                
+                if lowest_competitor is None:
+                    continue
+                
+                # Знайти який конкурент має цю ціну
+                our_sku = product.get('sku')
+                
+                # Перевірити site1 (Coleman)
+                if product.get('site1_price') == lowest_competitor:
+                    site_sku = product.get('site1_sku')
+                    if site_sku:
+                        self.matched_tracker.track_match(
+                            source='coleman',
+                            competitor_sku=site_sku,
+                            our_sku=our_sku,
+                            used=True  # ✅ Цей використано!
+                        )
+                        updated_count += 1
+                        self.logger.debug(
+                            f"Product {our_sku}: Coleman {site_sku} used (${lowest_competitor})"
+                        )
+                
+                # Перевірити site2 (1StopBedrooms)
+                elif product.get('site2_price') == lowest_competitor:
+                    site_sku = product.get('site2_sku')
+                    if site_sku:
+                        self.matched_tracker.track_match(
+                            source='onestopbedrooms',
+                            competitor_sku=site_sku,
+                            our_sku=our_sku,
+                            used=True  # ✅ Цей використано!
+                        )
+                        updated_count += 1
+                        self.logger.debug(
+                            f"Product {our_sku}: 1StopBedrooms {site_sku} used (${lowest_competitor})"
+                        )
+                
+                # Перевірити site3 (AFA)
+                elif product.get('site3_price') == lowest_competitor:
+                    site_sku = product.get('site3_sku')
+                    if site_sku:
+                        self.matched_tracker.track_match(
+                            source='afastores',
+                            competitor_sku=site_sku,
+                            our_sku=our_sku,
+                            used=True  # ✅ Цей використано!
+                        )
+                        updated_count += 1
+                        self.logger.debug(
+                            f"Product {our_sku}: AFA {site_sku} used (${lowest_competitor})"
+                        )
+            
+            # Якщо calculation_method != 'competitor_based':
+            # - Всі товари залишаються used=False (вже встановлено в _match_and_track_competitor)
+        
+        self.logger.info(f"✓ Updated 'Used In Pricing' for {updated_count} competitor products")
+    
     def _update_sheets(self, products: List[Dict]) -> int:
         """Оновити Google Sheets"""
         # Перевірити enable_price_updates
@@ -646,13 +690,13 @@ class FurnitureRepricer:
             # Передати competitor_data + matched_tracker
             competitors_updated = self.sheets_manager.batch_update_competitors_raw(
                 self.competitor_data,  # ← RAW дані від scrapers
-                matched_tracker=self.matched_tracker  # ← NEW! Для tracking колонок
+                matched_tracker=self.matched_tracker  # ← Для tracking колонок
             )
             
             self.logger.info(f"Competitors sheet: {competitors_updated} products")
             
             # ═══════════════════════════════════════════════════════
-            # NEW: Показати matched tracking статистику
+            # Показати matched tracking статистику
             # ═══════════════════════════════════════════════════════
             total_counts = {
                 src: len(prods) 

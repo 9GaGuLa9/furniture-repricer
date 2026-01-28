@@ -180,9 +180,9 @@ class ConfigManager:
             'scraper_afastores': True,
             
             # === SCRAPING LIMITS ===
-            'max_products_emmamason': 5000,
-            'max_products_per_competitor': 2000,
-            'scraping_timeout_minutes': 45,
+            'max_products_emmamason': 15000,
+            'max_products_per_competitor': 20000,
+            'scraping_timeout_minutes': 120,
             
             # === EMMA MASON SPECIFIC ===
             'emmamason_max_retries': 3,
