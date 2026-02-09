@@ -1,6 +1,6 @@
 """
-Scheduler Module для Furniture Repricer
-Автоматичний запуск в заданий час з підтримкою timezone
+Scheduler Module for Furniture Repricer
+Automatic launch at a specified time with time zone support
 """
 
 import time
@@ -18,14 +18,7 @@ logger = logging.getLogger("scheduler")
 
 class RepricerScheduler:
     """
-    Планувальник для автоматичного запуску репрайсера
-    
-    Підтримує:
-    - Multiple execution times (06:00, 16:00, 21:00)
-    - Timezone support (EST, UTC, Europe/Kyiv, etc.)
-    - Enable/disable через config
-    - Error handling + retry logic
-    - Graceful shutdown
+    Scheduler for automatic repricer launch
     """
     
     def __init__(
@@ -33,22 +26,25 @@ class RepricerScheduler:
         schedule_times: List[str],
         timezone: str = "America/New_York",
         enabled: bool = True,
-        config_path: str = "config.yaml"
+        config_path: str = "config.yaml",
+        timeout_hours: float = 4.0
     ):
         """
-        Ініціалізація scheduler
+        Initialization of the scheduler
         
         Args:
-            schedule_times: Список часів запуску ["06:00", "16:00", "21:00"]
-            timezone: Часовий пояс (pytz timezone name)
-            enabled: Чи увімкнений scheduler
-            config_path: Шлях до config.yaml
+            schedule_times: List of start times [“06:00”, “16:00”, “21:00”]
+            timezone: Time zone (pytz timezone name)
+            enabled: Whether the scheduler is enabled
+            config_path: Path to config.yaml
+            timeout_hours: Maximum execution time in hours (default: 4.0)
         """
         self.schedule_times = schedule_times
         self.timezone_name = timezone
         self.enabled = enabled
         self.config_path = config_path
         self.running = False
+        self.timeout_seconds = int(timeout_hours * 3600)
         
         # Validate timezone
         try:
@@ -69,16 +65,17 @@ class RepricerScheduler:
         }
         
         logger.info(f"Scheduler initialized: {len(schedule_times)} times, timezone: {timezone}")
+        logger.info(f"Timeout: {timeout_hours} hours ({self.timeout_seconds} seconds)")
     
     def _get_current_time(self) -> datetime:
-        """Отримати поточний час в налаштованому timezone"""
+        """Get the current time in the configured timezone"""
         return datetime.now(self.timezone)
     
     def _run_repricer(self):
         """
-        Запустити репрайсер
+        Launch the replayer
         
-        Використовує subprocess для запуску run_repricer.py
+        Uses subprocess to run run_repricer.py
         """
         current_time = self._get_current_time()
         
@@ -90,25 +87,28 @@ class RepricerScheduler:
         self.stats['last_run'] = current_time.isoformat()
         
         try:
-            # Визначити Python executable і run script
+            # Identify Python executable and run script
             python_exe = sys.executable
             run_script = Path(__file__).parent.parent.parent / "run_repricer.py"
             
             if not run_script.exists():
                 raise FileNotFoundError(f"run_repricer.py not found: {run_script}")
             
-            # Запустити як subprocess
+            # Run as a subprocess
             logger.info(f"Executing: {python_exe} {run_script}")
+            logger.info(f"Timeout: {self.timeout_seconds/3600:.1f} hours")
             
             result = subprocess.run(
                 [python_exe, str(run_script)],
                 cwd=str(run_script.parent),
                 capture_output=True,
                 text=True,
-                timeout=7200  # 2 hours max
+                timeout=self.timeout_seconds,  # Configurable timeout
+                encoding='utf-8',
+                errors='replace'  # Handle encoding errors gracefully
             )
             
-            # Логувати output
+            # Log output
             if result.stdout:
                 logger.info("STDOUT:")
                 for line in result.stdout.split('\n'):
@@ -121,13 +121,13 @@ class RepricerScheduler:
                     if line.strip():
                         logger.warning(f"  {line}")
             
-            # Перевірити result code
+            # Check the result code
             if result.returncode == 0:
-                logger.info("✓ Repricer completed successfully")
+                logger.info("[OK] Repricer completed successfully")
                 self.stats['successful_runs'] += 1
                 self.stats['last_success'] = current_time.isoformat()
             else:
-                logger.error(f"✗ Repricer failed with code {result.returncode}")
+                logger.error(f"[FAIL] Repricer failed with code {result.returncode}")
                 self.stats['failed_runs'] += 1
                 self.stats['last_error'] = {
                     'time': current_time.isoformat(),
@@ -136,15 +136,16 @@ class RepricerScheduler:
                 }
         
         except subprocess.TimeoutExpired:
-            logger.error("✗ Repricer execution timeout (2 hours)")
+            timeout_hours = self.timeout_seconds / 3600
+            logger.error(f"[TIMEOUT] Repricer execution timeout ({timeout_hours:.1f} hours)")
             self.stats['failed_runs'] += 1
             self.stats['last_error'] = {
                 'time': current_time.isoformat(),
-                'error': 'Timeout (2 hours)'
+                'error': f'Timeout ({timeout_hours:.1f} hours)'
             }
         
         except Exception as e:
-            logger.error(f"✗ Repricer execution failed: {e}", exc_info=True)
+            logger.error(f"[ERROR] Repricer execution failed: {e}", exc_info=True)
             self.stats['failed_runs'] += 1
             self.stats['last_error'] = {
                 'time': current_time.isoformat(),
@@ -157,7 +158,7 @@ class RepricerScheduler:
             logger.info("="*60)
     
     def setup_schedule(self):
-        """Налаштувати розклад виконання"""
+        """Set up a schedule for execution"""
         if not self.enabled:
             logger.warning("Scheduler is DISABLED")
             return
@@ -165,7 +166,7 @@ class RepricerScheduler:
         # Clear existing schedule
         schedule.clear()
         
-        # Додати кожен час
+        # Add every time
         for time_str in self.schedule_times:
             try:
                 # Validate time format
@@ -174,16 +175,16 @@ class RepricerScheduler:
                 # Schedule job
                 schedule.every().day.at(time_str).do(self._run_repricer)
                 
-                logger.info(f"✓ Scheduled: {time_str} {self.timezone_name}")
+                logger.info(f"[OK] Scheduled: {time_str} {self.timezone_name}")
             
             except ValueError:
                 logger.error(f"Invalid time format: {time_str} (expected HH:MM)")
         
-        # Показати next runs
+        # Show next runs
         self._log_next_runs()
     
     def _log_next_runs(self):
-        """Логувати наступні заплановані запуски"""
+        """Log the following scheduled launches"""
         jobs = schedule.get_jobs()
         
         if not jobs:
@@ -195,15 +196,16 @@ class RepricerScheduler:
         for job in jobs:
             next_run = job.next_run
             if next_run:
-                # Convert to our timezone for display
-                next_run_local = next_run.replace(tzinfo=pytz.UTC).astimezone(self.timezone)
+                # schedule library works in local system time (not UTC)
+                # Just add timezone info without conversion
+                next_run_local = self.timezone.localize(next_run)
                 logger.info(f"  Next run: {next_run_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     
     def run_forever(self):
         """
-        Запустити scheduler в нескінченному циклі
+        Run the scheduler in an infinite loop
         
-        Виконується до Ctrl+C або до зовнішнього stop
+        Executed until Ctrl+C or external stop
         """
         if not self.enabled:
             logger.error("Cannot run scheduler - it's disabled!")
@@ -216,6 +218,7 @@ class RepricerScheduler:
         logger.info("SCHEDULER STARTED")
         logger.info(f"Timezone: {self.timezone_name}")
         logger.info(f"Schedule times: {', '.join(self.schedule_times)}")
+        logger.info(f"Timeout: {self.timeout_seconds/3600:.1f} hours per run")
         logger.info("Press Ctrl+C to stop")
         logger.info("="*60 + "\n")
         
@@ -233,7 +236,7 @@ class RepricerScheduler:
                     self._log_status()
         
         except KeyboardInterrupt:
-            logger.info("\n✓ Scheduler stopped by user (Ctrl+C)")
+            logger.info("\n[OK] Scheduler stopped by user (Ctrl+C)")
         
         except Exception as e:
             logger.error(f"Scheduler error: {e}", exc_info=True)
@@ -243,7 +246,7 @@ class RepricerScheduler:
             logger.info("Scheduler shutdown complete")
     
     def _log_status(self):
-        """Логувати поточний статус"""
+        """Log current status"""
         current_time = self._get_current_time()
         
         logger.info("\n" + "-"*60)
@@ -268,27 +271,25 @@ class RepricerScheduler:
         logger.info("-"*60 + "\n")
     
     def stop(self):
-        """Зупинити scheduler gracefully"""
+        """Stop the scheduler gracefully"""
         logger.info("Stopping scheduler...")
         self.running = False
     
     def run_once_now(self):
         """
-        Запустити репрайсер ЗАРАЗ (поза розкладом)
-        
-        Корисно для manual testing
+        Start the replayer NOW (outside of schedule)
         """
         logger.info("Manual run triggered (outside schedule)")
         self._run_repricer()
     
     def get_stats(self) -> dict:
-        """Отримати статистику"""
+        """Get statistics"""
         return self.stats.copy()
 
 
 def create_scheduler_from_config(config: dict) -> Optional[RepricerScheduler]:
     """
-    Створити scheduler з конфігурації
+    Create a scheduler from the configuration
     
     Args:
         config: Config dictionary (з ConfigManager або YAML)
@@ -296,33 +297,36 @@ def create_scheduler_from_config(config: dict) -> Optional[RepricerScheduler]:
     Returns:
         RepricerScheduler instance або None якщо disabled
     """
-    # Перевірити чи enabled
+    # Check if enabled
     enabled = config.get('schedule_enabled', False)
     
     if not enabled:
         logger.info("Scheduler disabled in config (schedule_enabled = FALSE)")
         return None
     
-    # Отримати параметри
+    # Get parameters
     times_str = config.get('schedule_times', '06:00,16:00,21:00')
     timezone = config.get('schedule_timezone', 'America/New_York')
+    timeout_minutes = config.get('scraping_timeout_minutes', 240)  # Default: 4 hours
     
     # Parse times
     schedule_times = [t.strip() for t in times_str.split(',')]
     
-    # Створити scheduler
+    # Convert timeout to hours
+    timeout_hours = timeout_minutes / 60.0
+    
+    # Create scheduler
     scheduler = RepricerScheduler(
         schedule_times=schedule_times,
         timezone=timezone,
-        enabled=enabled
+        enabled=enabled,
+        timeout_hours=timeout_hours
     )
     
     return scheduler
 
-
 # ============================================================
-# ПРИКЛАД ВИКОРИСТАННЯ
-# ============================================================
+# EXAMPLE OF USE
 
 if __name__ == "__main__":
     # Setup logging
@@ -336,12 +340,13 @@ if __name__ == "__main__":
     print("SCHEDULER MODULE TEST")
     print("="*60 + "\n")
     
-    # Приклад 1: Manual scheduler
+    # Example 1: Manual scheduler
     print("Example 1: Create scheduler with custom times")
     scheduler = RepricerScheduler(
         schedule_times=["09:00", "15:00", "21:00"],
         timezone="America/New_York",
-        enabled=True
+        enabled=True,
+        timeout_hours=4.0
     )
     scheduler.setup_schedule()
     
@@ -352,7 +357,8 @@ if __name__ == "__main__":
     test_config = {
         'schedule_enabled': True,
         'schedule_times': '06:00,16:00,21:00',
-        'schedule_timezone': 'America/New_York'
+        'schedule_timezone': 'America/New_York',
+        'scraping_timeout_minutes': 240
     }
     scheduler2 = create_scheduler_from_config(test_config)
     
@@ -360,6 +366,6 @@ if __name__ == "__main__":
         print("Scheduler created from config!")
         scheduler2.setup_schedule()
     
-    print("\n✓ Scheduler module test complete!")
+    print("\n[OK] Scheduler module test complete!")
     print("\nTo run forever: scheduler.run_forever()")
     print("To stop: Press Ctrl+C")

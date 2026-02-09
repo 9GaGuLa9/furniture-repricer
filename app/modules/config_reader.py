@@ -1,6 +1,6 @@
 """
-Модуль для читання конфігурації з Google Sheets
-Читає Config та Price_rules sheets для керування репрайсером
+Module for reading configuration from Google Sheets
+Reads Config and Price_rules sheets to control the repricer
 """
 
 from typing import Dict, Any, List, Optional
@@ -10,13 +10,13 @@ logger = get_logger("config_reader")
 
 
 class GoogleSheetsConfigReader:
-    """Читання конфігурації з Google Sheets"""
+    """Reading configuration from Google Sheets"""
     
     def __init__(self, sheets_client, main_sheet_id: str):
         """
         Args:
             sheets_client: GoogleSheetsClient instance
-            main_sheet_id: ID головної таблиці
+            main_sheet_id: ID main table
         """
         self.client = sheets_client
         self.sheet_id = main_sheet_id
@@ -24,20 +24,20 @@ class GoogleSheetsConfigReader:
     
     def read_config(self) -> Dict[str, Any]:
         """
-        Читання конфігурації з аркушу "Config"
+        Reading the configuration from the “Config” sheet
         
-        Структура:
+        Structure:
         | Parameter | Value | Description |
         |-----------|-------|-------------|
         | run_enabled | TRUE | ... |
         
         Returns:
-            Словник з параметрами конфігурації
+            Dictionary with configuration parameters
         """
         try:
             self.logger.info("Reading Config from Google Sheets...")
             
-            # Спробувати знайти Config sheet
+            # Try to find the Config sheet
             try:
                 data = self.client.read_all_data(self.sheet_id, "Config")
             except Exception:
@@ -48,10 +48,10 @@ class GoogleSheetsConfigReader:
                 self.logger.warning("Config sheet is empty, using defaults")
                 return self._get_default_config()
             
-            # Парсинг даних
+            # Data parsing
             config = {}
             
-            # Пропустити header (рядок 1)
+            # Skip header (line 1)
             for row in data[1:]:
                 if len(row) < 2:
                     continue
@@ -60,15 +60,15 @@ class GoogleSheetsConfigReader:
                 param_value = row[1].strip() if len(row) > 1 else ""
                 
                 if not param_name or param_name.startswith("==="):
-                    continue  # Пропустити порожні рядки та роздільники
+                    continue  # Skip empty lines and separatorsи
                 
-                # Конвертувати значення
+                # Convert values
                 config[param_name] = self._parse_value(param_value)
             
-            # Логування
-            self.logger.info(f"✓ Loaded {len(config)} parameters from Config sheet")
+            # Logging
+            self.logger.info(f"[OK] Loaded {len(config)} parameters from Config sheet")
             
-            # Показати критичні параметри
+            # Show critical parameters
             critical_params = [
                 'run_enabled',
                 'scraper_emmamason',
@@ -80,7 +80,7 @@ class GoogleSheetsConfigReader:
                 if param in config:
                     self.logger.info(f"  {param}: {config[param]}")
             
-            # Merge з defaults (якщо якихось параметрів немає)
+            # Merge з defaults (if some parameters are missing)
             default_config = self._get_default_config()
             for key, value in default_config.items():
                 if key not in config:
@@ -94,9 +94,9 @@ class GoogleSheetsConfigReader:
     
     def read_price_rules(self) -> Dict[str, float]:
         """
-        Читання правил ціноутворення з аркушу "Price_rules"
+        Reading the pricing rules from the sheet "Price_rules"
         
-        Структура:
+        Structure:
         | Parameter                  | Value |
         |----------------------------|-------|
         | Floor (rate)               | 1.5   |
@@ -104,12 +104,12 @@ class GoogleSheetsConfigReader:
         | Max (rate)                 | 2     |
         
         Returns:
-            Словник з правилами ціноутворення
+            Glossary of pricing rules
         """
         try:
             self.logger.info("Reading Price_rules from Google Sheets...")
             
-            # Спробувати знайти Price_rules sheet
+            # Try to find the Price_rules sheet
             try:
                 data = self.client.read_all_data(self.sheet_id, "Price_rules")
             except Exception:
@@ -120,10 +120,10 @@ class GoogleSheetsConfigReader:
                 self.logger.warning("Price_rules sheet is empty, using defaults")
                 return self._get_default_price_rules()
             
-            # Парсинг даних
+            # Data parsing
             rules = {}
             
-            # Пропустити header (рядок 1)
+            # Skip header (line 1)
             for row in data[1:]:
                 if len(row) < 2:
                     continue
@@ -134,7 +134,7 @@ class GoogleSheetsConfigReader:
                 if not param_name:
                     continue
                 
-                # Нормалізувати назви параметрів
+                # Normalize parameter names
                 # "Floor (rate)" -> "floor_rate"
                 # "Below Lowest Competitor ($)" -> "below_competitor"
                 # "Max (rate)" -> "max_rate"
@@ -148,8 +148,8 @@ class GoogleSheetsConfigReader:
                 elif "max" in param_name.lower():
                     rules['max_rate'] = self._parse_float(param_value, 2.0)
             
-            # Логування
-            self.logger.info(f"✓ Loaded price rules:")
+            # Logging
+            self.logger.info(f"[OK] Loaded price rules:")
             self.logger.info(f"  Floor rate: {rules.get('floor_rate', 1.5)}")
             self.logger.info(f"  Below competitor: ${rules.get('below_competitor', 1.0)}")
             self.logger.info(f"  Max rate: {rules.get('max_rate', 2.0)}")
@@ -168,13 +168,13 @@ class GoogleSheetsConfigReader:
     
     def _parse_value(self, value: str) -> Any:
         """
-        Конвертувати string значення в відповідний тип
+        Convert string values to the appropriate type
         
         Args:
-            value: String значення
+            value: String value
         
         Returns:
-            Конвертоване значення (bool, int, float, або string)
+            Converted value (bool, int, float, або string)
         """
         if not value:
             return None
@@ -189,11 +189,14 @@ class GoogleSheetsConfigReader:
         
         # Number
         try:
-            # Спробувати int
-            if '.' not in value:
-                return int(value)
-            # Спробувати float
-            return float(value)
+            # FIXED: Replace comma with dot for European decimal separator
+            value_normalized = value.replace(',', '.')
+            
+            # Try int
+            if '.' not in value_normalized:
+                return int(value_normalized)
+            # Try float
+            return float(value_normalized)
         except ValueError:
             pass
         
@@ -202,14 +205,14 @@ class GoogleSheetsConfigReader:
     
     def _parse_float(self, value: str, default: float = 0.0) -> float:
         """
-        Конвертувати в float з default значенням
+        Convert to float with default value
         
         Args:
-            value: String значення
-            default: Default якщо конвертація не вдалась
+            value: String value
+            default: Default if conversion failed
         
         Returns:
-            Float значення
+            Float value
         """
         if not value:
             return default
@@ -222,10 +225,10 @@ class GoogleSheetsConfigReader:
     
     def _get_default_config(self) -> Dict[str, Any]:
         """
-        Default конфігурація якщо Config sheet не знайдено
+        Default configuration if Config sheet not found
         
         Returns:
-            Словник з default параметрами
+            Dictionary with default parameters
         """
         return {
             # System
@@ -277,13 +280,13 @@ class GoogleSheetsConfigReader:
     
     def _get_default_price_rules(self) -> Dict[str, float]:
         """
-        Default правила ціноутворення
+        Default pricing rules
         
         Returns:
-            Словник з default rules
+            Glossary of default rules
         """
         return {
-            'floor_rate': 1.5,        # Мінімальна ціна = Our Cost * 1.5
-            'below_competitor': 1.0,   # На $1 нижче конкурента
-            'max_rate': 2.0,          # Максимальна ціна = Our Cost * 2.0
+            'floor_rate': 1.5,        # Min price = Our Cost * 1.5
+            'below_competitor': 1.0,   # $1 lower than the competitor
+            'max_rate': 2.0,          # Max price = Our Cost * 2.0
         }

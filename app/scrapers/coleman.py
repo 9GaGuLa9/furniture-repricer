@@ -1,6 +1,6 @@
 """
-Coleman Furniture Scraper - FIXED VERSION
-Парсить тільки 3 конкретних виробників через manufacturer API endpoint
+Coleman Furniture Scraper
+Parses only 3 specific manufacturers via the manufacturer API endpoint
 """
 
 import requests
@@ -14,7 +14,7 @@ logger = logging.getLogger("coleman")
 
 
 class ColemanScraper(ScraperErrorMixin):
-    """Scraper для colemanfurniture.com - Тільки 3 виробників"""
+    """Scraper for colemanfurniture.com"""
     
     BASE_URL = "https://colemanfurniture.com"
     
@@ -42,18 +42,40 @@ class ColemanScraper(ScraperErrorMixin):
             'total_products': 0,
             'unique_products': 0,
             'errors': 0,
-            'manufacturers_processed': 0
+            'manufacturers_processed': 0,
+            'successful_retries': 0,
+            'failed_requests': 0
         }
         
+        # Track failed requests details
+        self.failed_requests_list = []
+
         logger.info("Coleman Furniture scraper initialized (3 manufacturers)")
     
     def _random_delay(self):
-        """Затримка між запитами"""
+        """Delay between requests"""
         import random
         time.sleep(random.uniform(self.delay_min, self.delay_max))
     
-    def _safe_request(self, url: str, params: dict, headers: dict) -> Optional[dict]:
-        """Виконує запит з retry логікою"""
+    def _safe_request(self, url: str, params: dict, headers: dict, 
+                    manufacturer_name: str = None, page: int = None) -> Optional[dict]:
+        """
+        Виконує запит з retry логікою
+        ✨ IMPROVED: Детальне логування для логів та Google Sheets
+        
+        Args:
+            url: URL для запиту
+            params: Query parameters
+            headers: HTTP headers
+            manufacturer_name: Назва виробника (для логування)
+            page: Номер сторінки (для логування)
+        
+        Returns:
+            JSON dict або None якщо помилка
+        """
+        last_error = None
+        last_status_code = None
+        
         for attempt in range(self.retry_attempts):
             try:
                 response = requests.get(
@@ -64,33 +86,107 @@ class ColemanScraper(ScraperErrorMixin):
                 )
                 response.raise_for_status()
                 
-                # Перевірка Content-Type
+                # Content-Type verification
                 content_type = response.headers.get('Content-Type', '')
                 if 'application/json' not in content_type:
-                    logger.warning(f"Non-JSON response (attempt {attempt+1})")
+                    error_msg = f"Non-JSON response (Content-Type: {content_type})"
+                    logger.warning(
+                        f"⚠️  {error_msg} - Manufacturer: '{manufacturer_name}', "
+                        f"Page: {page}, Attempt: {attempt + 1}/{self.retry_attempts}"
+                    )
+                    
                     if attempt < self.retry_attempts - 1:
                         time.sleep(3)
                         continue
                     return None
                 
+                # ✅ NEW: Log successful retry
+                if attempt > 0:
+                    logger.info(
+                        f"✅ Retry SUCCESS - Manufacturer: '{manufacturer_name}', "
+                        f"Page: {page} (succeeded on attempt {attempt + 1}/{self.retry_attempts})"
+                    )
+                    self.stats['successful_retries'] += 1
+                
                 return response.json()
                 
             except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 404:
-                    logger.debug(f"404 Not Found")
+                last_error = e
+                status_code = e.response.status_code
+                last_status_code = status_code
+                
+                # ✅ IMPROVED: Детальне логування
+                if status_code == 404:
+                    logger.debug(f"404 Not Found - Manufacturer: '{manufacturer_name}', Page: {page}")
                     return None
-                logger.warning(f"HTTP error (attempt {attempt+1}/{self.retry_attempts}): {e}")
+                
+                logger.warning(
+                    f"⚠️  HTTP {status_code} - Manufacturer: '{manufacturer_name}', "
+                    f"Page: {page}, Attempt: {attempt + 1}/{self.retry_attempts}"
+                )
+                
+                # ✅ IMPROVED: Log to Google Sheets
+                self.log_scraping_error(
+                    error=e,
+                    url=url,
+                    context={
+                        'method': '_safe_request',
+                        'manufacturer': manufacturer_name,
+                        'page': page,
+                        'attempt': f"{attempt + 1}/{self.retry_attempts}",
+                        'status_code': status_code,
+                        'params': str(params)[:100]
+                    }
+                )
+                
             except Exception as e:
-                logger.warning(f"Request error (attempt {attempt+1}/{self.retry_attempts}): {e}")
+                last_error = e
+                error_str = str(e)
+                
+                logger.warning(
+                    f"⚠️  Request error - Manufacturer: '{manufacturer_name}', "
+                    f"Page: {page}, Attempt: {attempt + 1}/{self.retry_attempts}, "
+                    f"Error: {error_str[:100]}"
+                )
+                
+                # ✅ IMPROVED: Log to Google Sheets
+                self.log_scraping_error(
+                    error=e,
+                    url=url,
+                    context={
+                        'method': '_safe_request',
+                        'manufacturer': manufacturer_name,
+                        'page': page,
+                        'attempt': f"{attempt + 1}/{self.retry_attempts}",
+                        'error_type': type(e).__name__
+                    }
+                )
             
+            # Retry delay
             if attempt < self.retry_attempts - 1:
                 time.sleep(5)
+        
+        # ✅ IMPROVED: Final failure log
+        if last_error:
+            logger.error(
+                f"❌ FINAL FAILURE - Manufacturer: '{manufacturer_name}', Page: {page} - "
+                f"gave up after {self.retry_attempts} attempts"
+            )
+            
+            # Track failed request
+            self.failed_requests_list.append({
+                'manufacturer': manufacturer_name,
+                'page': page,
+                'error': str(last_error)[:100],
+                'status_code': last_status_code
+            })
+            self.stats['failed_requests'] += 1
         
         self.stats['errors'] += 1
         return None
     
     def _extract_products(self, products_data: List[dict], manufacturer_name: str) -> List[Dict[str, str]]:
-        """Витягує дані товарів зі списку"""
+        """Extracts product data from the list"""
         products = []
         
         for product in products_data:
@@ -101,7 +197,7 @@ class ColemanScraper(ScraperErrorMixin):
             if not sku:
                 continue
             
-            # Витягуємо дані
+            # Extracting data
             price_data = product.get("price", {})
             manufacturer_data = product.get("manufacturer", {})
             
@@ -129,7 +225,7 @@ class ColemanScraper(ScraperErrorMixin):
                 "Referer": f"{self.BASE_URL}/martin-furniture.html"
             }
             
-            # Перший запит щоб дізнатись кількість сторінок
+            # First request to find out the number of pages
             url = f"{self.BASE_URL}/manufacturer/detail/{manufacturer_id}"
             params = {
                 "order": "recommended",
@@ -137,12 +233,14 @@ class ColemanScraper(ScraperErrorMixin):
                 "storeid": 1
             }
             
-            data = self._safe_request(url, params, headers)
+            data = self._safe_request(url, params, headers, 
+                            manufacturer_name=manufacturer_name, page=1)
+            
             if not data or "data" not in data:
                 logger.error(f"Failed to get data for {manufacturer_name}")
                 return []
             
-            # Отримати інфо про пагінацію
+            # Get info about pagination
             try:
                 content = data["data"]["content"]
                 pager = content.get("pager", {})
@@ -152,11 +250,11 @@ class ColemanScraper(ScraperErrorMixin):
                 
                 logger.info(f"Manufacturer {manufacturer_name}: {items_count} items, {max_page} pages")
                 
-                # Витягти товари з першої сторінки
+                # Remove products from the first page
                 products_data = content.get("products", [])
                 products = self._extract_products(products_data, manufacturer_name)
                 
-                # Додати тільки унікальні SKU
+                # Add only unique SKUs
                 for product in products:
                     sku = product["sku"]
                     if sku not in seen_skus:
@@ -169,11 +267,13 @@ class ColemanScraper(ScraperErrorMixin):
                 logger.error(f"Missing data in response: {e}")
                 return []
             
-            # Парсимо решту сторінок (якщо є)
+            # We'll parse the rest of the pages (if any)
             for page in range(2, max_page + 1):
                 params["p"] = page
                 
-                data = self._safe_request(url, params, headers)
+                data = self._safe_request(url, params, headers,
+                            manufacturer_name=manufacturer_name, page=page)
+                
                 if not data:
                     logger.warning(f"Failed to load page {page}, skipping...")
                     continue
@@ -182,7 +282,7 @@ class ColemanScraper(ScraperErrorMixin):
                     products_data = data["data"]["content"]["products"]
                     products = self._extract_products(products_data, manufacturer_name)
                     
-                    # Додати тільки унікальні SKU
+                    # Add only unique SKU
                     new_count = 0
                     for product in products:
                         sku = product["sku"]
@@ -197,7 +297,7 @@ class ColemanScraper(ScraperErrorMixin):
                     logger.error(f"Missing data on page {page}: {e}")
                     continue
                 
-                # Затримка між сторінками
+                # Delay between pages
                 if page < max_page:
                     self._random_delay()
             
@@ -207,7 +307,7 @@ class ColemanScraper(ScraperErrorMixin):
             return manufacturer_products
 
         except Exception as e:
-            # ✅ ДОДАТИ: Log error з context
+            # ADD: Log error with context
             self.log_scraping_error(
                 error=e,
                 context={
@@ -215,11 +315,68 @@ class ColemanScraper(ScraperErrorMixin):
                     'products_scraped': len(products)
                 }
             )
-            # Можна продовжити з наступним manufacturer
+            # You can continue with the next manufacturer
             logger.error(f"Failed to scrape {manufacturer_name}: {e}")
 
+    def _print_scraping_summary(self, products: List[Dict[str, str]], seen_skus: set):
+        """
+        Вивести детальну статистику scraping
+        ✨ NEW: Показує successful retries, failed requests, детальний аналіз
+        
+        Args:
+            products: Список всіх зібраних products
+            seen_skus: Set унікальних SKU
+        """
+        logger.info("")
+        logger.info("="*70)
+        logger.info("COLEMAN FURNITURE SCRAPER SUMMARY")
+        logger.info("="*70)
+        
+        # Основна статистика
+        logger.info(f"📊 STATISTICS:")
+        logger.info(f"   Manufacturers processed: {self.stats['manufacturers_processed']}/{len(self.MANUFACTURERS)}")
+        logger.info(f"   Total products: {len(products)}")
+        logger.info(f"   Unique SKUs: {len(seen_skus)}")
+        
+        logger.info("")
+        logger.info(f"🔄 RETRIES:")
+        logger.info(f"   Total errors: {self.stats['errors']}")
+        logger.info(f"   Successful retries: {self.stats['successful_retries']}")
+        logger.info(f"   Failed requests: {self.stats['failed_requests']}")
+        
+        # ✅ Розрахувати success rate
+        if self.stats['errors'] > 0:
+            success_rate = (self.stats['successful_retries'] / self.stats['errors']) * 100
+            logger.info(f"   Retry success rate: {success_rate:.1f}%")
+        
+        # ✅ Показати failed requests якщо є
+        if self.failed_requests_list:
+            logger.warning("")
+            logger.warning(f"⚠️  FAILED REQUESTS ({len(self.failed_requests_list)}):")
+            
+            # Показати перші 10
+            for i, fr in enumerate(self.failed_requests_list[:10], 1):
+                status = f"HTTP {fr['status_code']}" if fr['status_code'] else "Error"
+                logger.warning(
+                    f"   {i}. '{fr['manufacturer']}' page {fr['page']} - "
+                    f"{status}: {fr['error']}"
+                )
+            
+            if len(self.failed_requests_list) > 10:
+                remaining = len(self.failed_requests_list) - 10
+                logger.warning(f"   ... and {remaining} more failed requests")
+            
+            logger.warning("")
+            logger.warning("💡 TIP: Check 'Scraping_Errors' sheet in Google Sheets for full details")
+            logger.warning("💡 TIP: Use grep 'FINAL FAILURE' in logs to see all failed requests")
+        else:
+            logger.info("")
+            logger.info("✅ No failed requests - all retries successful!")
+        
+        logger.info("="*70)
+
     def scrape_all_products(self) -> List[Dict[str, str]]:
-        """Парсить всі товари з 3 виробників"""
+        """Parses all products from 3 manufacturers"""
         try:
             logger.info("="*60)
             logger.info("Starting Coleman Furniture scraping")
@@ -238,23 +395,19 @@ class ColemanScraper(ScraperErrorMixin):
                 self.stats['total_products'] = len(all_products)
                 self.stats['unique_products'] = len(seen_skus)
                 
-                # Затримка між виробниками
+                # Delay between manufacturers
                 time.sleep(2)
             
-            logger.info("="*60)
-            logger.info(f"Completed: {len(all_products)} products from {len(seen_skus)} unique SKUs")
-            logger.info(f"Manufacturers processed: {self.stats['manufacturers_processed']}")
-            logger.info(f"Errors: {self.stats['errors']}")
-            logger.info("="*60)
+            self._print_scraping_summary(all_products, seen_skus)
             
             return all_products
         except Exception as e:
-            # ✅ ДОДАТИ: Log error
+            # ✅ Add: Log error
             self.log_scraping_error(
                 error=e,
                 context={'stage': 'main_scraping'}
             )
-            raise  # Re-raise щоб main.py знав про помилку
+            raise  # Re-raise so that main.py knows about the error
     
     def get_stats(self) -> dict:
         """Повертає статистику"""
@@ -262,52 +415,11 @@ class ColemanScraper(ScraperErrorMixin):
 
 
 def scrape_coleman(config: dict, error_logger=None) -> List[Dict[str, str]]:
-    """Головна функція для парсингу Coleman Furniture"""
+    """Main function for parsing Coleman Furniture"""
     scraper = ColemanScraper(config, error_logger=error_logger)
     results = scraper.scrape_all_products()
     return results
 
 
-# if __name__ == "__main__":
-#     # Тестування
-#     import logging
-#     logging.basicConfig(
-#         level=logging.INFO,
-#         format='%(asctime)s | %(levelname)-8s | %(message)s',
-#         datefmt='%H:%M:%S'
-#     )
-    
-#     test_config = {
-#         'delay_min': 0.5,
-#         'delay_max': 1.5,
-#         'retry_attempts': 3,
-#         'timeout': 20
-#     }
-    
-#     print("\n" + "="*60)
-#     print("ТЕСТ COLEMAN FURNITURE SCRAPER (3 MANUFACTURERS)")
-#     print("="*60 + "\n")
-    
-#     results = scrape_coleman(test_config)
-    
-#     print("\n" + "="*60)
-#     print(f"РЕЗУЛЬТАТ: {len(results)} товарів")
-#     print("="*60)
-    
-#     if results:
-#         # Показати статистику по виробниках
-#         manufacturers = {}
-#         for product in results:
-#             mfr = product['manufacturer']
-#             manufacturers[mfr] = manufacturers.get(mfr, 0) + 1
-        
-#         print("\nПо виробниках:")
-#         for mfr, count in manufacturers.items():
-#             print(f"  {mfr}: {count} товарів")
-        
-#         print("\nПерші 5 товарів:")
-#         for i, product in enumerate(results[:5], 1):
-#             print(f"\n{i}. SKU: {product['sku']}")
-#             print(f"   Manufacturer: {product['manufacturer']}")
-#             print(f"   Price: ${product['price']}")
-#             print(f"   URL: {product['url'][:60]}...")
+if __name__ == "__main__":
+    pass

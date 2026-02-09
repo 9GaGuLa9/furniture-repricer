@@ -21,7 +21,7 @@ def main():
         result = subprocess.run(cmd, cwd=str(project_dir), check=False)
         return result.returncode
     except KeyboardInterrupt:
-        print("\n⚠️  Interrupted")
+        print("\n [!] Interrupted")
         return 1
 
 if __name__ == "__main__":

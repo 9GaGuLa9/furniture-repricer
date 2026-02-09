@@ -130,8 +130,13 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
             'total_products': 0,
             'unique_products': 0,
             'errors': 0,
-            'brands_processed': 0
+            'brands_processed': 0,
+            'successful_retries': 0,      # ✨ NEW
+            'failed_requests': 0           # ✨ NEW
         }
+
+        # Track failed requests details
+        self.failed_requests_list = []
         
         logger.info("1StopBedrooms scraper initialized (brand-based - FAST!)")
     
@@ -140,8 +145,24 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
         import random
         time.sleep(random.uniform(self.delay_min, self.delay_max))
     
-    def _safe_request(self, payload: dict, headers: dict) -> Optional[dict]:
-        """Виконує GraphQL запит з retry логікою"""
+    def _safe_request(self, payload: dict, headers: dict, 
+                    brand_name: str = None, page: int = None) -> Optional[dict]:
+        """
+        Виконує GraphQL запит з retry логікою
+        ✨ IMPROVED: Детальне логування для логів та Google Sheets
+        
+        Args:
+            payload: GraphQL запит
+            headers: HTTP headers
+            brand_name: Назва бренду (для логування)
+            page: Номер сторінки (для логування)
+        
+        Returns:
+            JSON dict або None якщо помилка
+        """
+        last_error = None
+        last_status_code = None
+        
         for attempt in range(self.retry_attempts):
             try:
                 response = requests.post(
@@ -151,11 +172,84 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
                     timeout=self.timeout
                 )
                 response.raise_for_status()
+                
+                # ✅ NEW: Log successful retry
+                if attempt > 0:
+                    logger.info(
+                        f"✅ Retry SUCCESS - Brand: '{brand_name}', "
+                        f"Page: {page} (succeeded on attempt {attempt + 1}/{self.retry_attempts})"
+                    )
+                    self.stats['successful_retries'] += 1
+                
                 return response.json()
+                
+            except requests.exceptions.HTTPError as e:
+                last_error = e
+                status_code = e.response.status_code
+                last_status_code = status_code
+                
+                # ✅ IMPROVED: Детальне логування
+                logger.warning(
+                    f"⚠️  HTTP {status_code} - Brand: '{brand_name}', "
+                    f"Page: {page}, Attempt: {attempt + 1}/{self.retry_attempts}"
+                )
+                
+                # ✅ IMPROVED: Log to Google Sheets
+                self.log_scraping_error(
+                    error=e,
+                    url=self.GRAPHQL_URL,
+                    context={
+                        'method': '_safe_request',
+                        'brand': brand_name,
+                        'page': page,
+                        'attempt': f"{attempt + 1}/{self.retry_attempts}",
+                        'status_code': status_code,
+                        'query_type': 'GraphQL'
+                    }
+                )
+                
             except Exception as e:
-                logger.warning(f"Request error (attempt {attempt+1}/{self.retry_attempts}): {e}")
-                if attempt < self.retry_attempts - 1:
-                    time.sleep(5)
+                last_error = e
+                error_str = str(e)
+                
+                logger.warning(
+                    f"⚠️  Request error - Brand: '{brand_name}', "
+                    f"Page: {page}, Attempt: {attempt + 1}/{self.retry_attempts}, "
+                    f"Error: {error_str[:100]}"
+                )
+                
+                # ✅ IMPROVED: Log to Google Sheets
+                self.log_scraping_error(
+                    error=e,
+                    url=self.GRAPHQL_URL,
+                    context={
+                        'method': '_safe_request',
+                        'brand': brand_name,
+                        'page': page,
+                        'attempt': f"{attempt + 1}/{self.retry_attempts}",
+                        'error_type': type(e).__name__
+                    }
+                )
+            
+            # Retry delay
+            if attempt < self.retry_attempts - 1:
+                time.sleep(5)
+        
+        # ✅ IMPROVED: Final failure log
+        if last_error:
+            logger.error(
+                f"❌ FINAL FAILURE - Brand: '{brand_name}', Page: {page} - "
+                f"gave up after {self.retry_attempts} attempts"
+            )
+            
+            # Track failed request
+            self.failed_requests_list.append({
+                'brand': brand_name,
+                'page': page,
+                'error': str(last_error)[:100],
+                'status_code': last_status_code
+            })
+            self.stats['failed_requests'] += 1
         
         self.stats['errors'] += 1
         return None
@@ -202,6 +296,63 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
         
         return products
     
+    def _print_scraping_summary(self, products: List[Dict[str, str]], seen_skus: set):
+        """
+        Вивести детальну статистику scraping
+        ✨ NEW: Показує successful retries, failed requests, детальний аналіз
+        
+        Args:
+            products: Список всіх зібраних products
+            seen_skus: Set унікальних SKU
+        """
+        logger.info("")
+        logger.info("="*70)
+        logger.info("1STOPBEDROOMS SCRAPER SUMMARY")
+        logger.info("="*70)
+        
+        # Основна статистика
+        logger.info(f"📊 STATISTICS:")
+        logger.info(f"   Brands processed: {self.stats['brands_processed']}/{len(self.BRANDS)}")
+        logger.info(f"   Total products: {len(products)}")
+        logger.info(f"   Unique SKUs: {len(seen_skus)}")
+        
+        logger.info("")
+        logger.info(f"🔄 RETRIES:")
+        logger.info(f"   Total errors: {self.stats['errors']}")
+        logger.info(f"   Successful retries: {self.stats['successful_retries']}")
+        logger.info(f"   Failed requests: {self.stats['failed_requests']}")
+        
+        # ✅ Розрахувати success rate
+        if self.stats['errors'] > 0:
+            success_rate = (self.stats['successful_retries'] / self.stats['errors']) * 100
+            logger.info(f"   Retry success rate: {success_rate:.1f}%")
+        
+        # ✅ Показати failed requests якщо є
+        if self.failed_requests_list:
+            logger.warning("")
+            logger.warning(f"⚠️  FAILED REQUESTS ({len(self.failed_requests_list)}):")
+            
+            # Показати перші 10
+            for i, fr in enumerate(self.failed_requests_list[:10], 1):
+                status = f"HTTP {fr['status_code']}" if fr['status_code'] else "Error"
+                logger.warning(
+                    f"   {i}. '{fr['brand']}' page {fr['page']} - "
+                    f"{status}: {fr['error']}"
+                )
+            
+            if len(self.failed_requests_list) > 10:
+                remaining = len(self.failed_requests_list) - 10
+                logger.warning(f"   ... and {remaining} more failed requests")
+            
+            logger.warning("")
+            logger.warning("💡 TIP: Check 'Scraping_Errors' sheet in Google Sheets for full details")
+            logger.warning("💡 TIP: Use grep 'FINAL FAILURE' in logs to see all failed requests")
+        else:
+            logger.info("")
+            logger.info("✅ No failed requests - all retries successful!")
+        
+        logger.info("="*70)
+    
     def scrape_brand(self, brand_info: dict, seen_skus: set) -> List[Dict[str, str]]:
         """Парсить всі товари одного виробника"""
         brand_name = brand_info["name"]
@@ -236,7 +387,8 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
             }
         }
         
-        data = self._safe_request(payload, headers)
+        data = self._safe_request(payload, headers, 
+                            brand_name=brand_name, page=1)
         if not data or "data" not in data:
             logger.error(f"Failed to get data for brand {brand_name}")
             return []
@@ -263,7 +415,9 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
         for page in range(2, max_page + 1):
             payload["variables"]["request"]["page"] = page
             
-            data = self._safe_request(payload, headers)
+            data = self._safe_request(payload, headers,
+                            brand_name=brand_name, page=page)
+            
             if not data:
                 logger.warning(f"Failed to load page {page}, skipping...")
                 continue
@@ -316,6 +470,9 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
             self.log_scraping_error(error=e, context={'stage': 'main'})
             raise
         
+        # ✅ NEW: Print detailed summary
+        self._print_scraping_summary(all_products, seen_skus)
+        
         return all_products
     
     def get_stats(self) -> dict:
@@ -330,51 +487,5 @@ def scrape_onestopbedrooms(config: dict, error_logger=None) -> List[Dict[str, st
     return results
 
 
-# if __name__ == "__main__":
-#     # Тестування
-#     import logging
-#     logging.basicConfig(
-#         level=logging.INFO,
-#         format='%(asctime)s | %(levelname)-8s | %(message)s',
-#         datefmt='%H:%M:%S'
-#     )
-    
-#     test_config = {
-#         'delay_min': 1.0,
-#         'delay_max': 2.0,
-#         'retry_attempts': 3,
-#         'timeout': 20
-#     }
-    
-#     print("\n" + "="*60)
-#     print("ТЕСТ 1STOPBEDROOMS SCRAPER (BRAND-BASED - FAST!)")
-#     print("="*60 + "\n")
-    
-#     results = scrape_onestopbedrooms(test_config)
-    
-#     print("\n" + "="*60)
-#     print(f"РЕЗУЛЬТАТ: {len(results)} товарів")
-#     print("="*60)
-    
-#     if results:
-#         # Показати статистику по виробниках
-#         brands = {}
-#         for product in results:
-#             brand = product['brand']
-#             if brand:
-#                 brands[brand] = brands.get(brand, 0) + 1
-        
-#         print("\nПо виробниках:")
-#         for brand, count in sorted(brands.items()):
-#             print(f"  {brand}: {count} товарів")
-        
-#         print("\nПерші 5 товарів:")
-#         for i, product in enumerate(results[:5], 1):
-#             print(f"\n{i}. SKU: {product['sku']}")
-#             print(f"   Brand: {product['brand']}")
-#             print(f"   Price: ${product['price']}")
-#             print(f"   URL: {product['url'][:60]}...")
-#     else:
-#         print("\n❌ Немає результатів")
-    
-#     print("\n" + "="*60)
+if __name__ == "__main__":
+    pass

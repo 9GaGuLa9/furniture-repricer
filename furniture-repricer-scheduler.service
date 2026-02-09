@@ -1,0 +1,17 @@
+[Unit]
+Description=Furniture Repricer Scheduler
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/path/to/furniture-repricer
+Environment="PATH=/path/to/furniture-repricer/venv/bin:/usr/bin"
+ExecStart=/path/to/furniture-repricer/venv/bin/python run_scheduler.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/path/to/furniture-repricer/logs/scheduler.log
+StandardError=append:/path/to/furniture-repricer/logs/scheduler-error.log
+
+[Install]
+WantedBy=multi-user.target

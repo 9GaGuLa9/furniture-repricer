@@ -1,11 +1,10 @@
 """
-SKU Matcher для Furniture Repricer
-Співставлення товарів за SKU
+SKU Matcher for Furniture Repricer
+Comparing products by SKU
 
-✅ IMPROVED v2.0:
-- Спочатку перевіряє ПОВНИЙ збіг (весь string)
-- Потім розділяє на частини (якщо є delimiter)
-- Обробка int SKU (деякі scrapers повертають числа)
+- First checks for a FULL match (the entire string)
+- Then splits it into parts (if there is a delimiter)
+- Processes int SKU (some scrapers return numbers)
 """
 
 from typing import List, Dict, Optional
@@ -15,7 +14,7 @@ import logging
 logger = logging.getLogger("sku_matcher")
 
 class SKUMatcher:
-    """Клас для matching SKU між товарами"""
+    """Class for matching SKUs between products"""
     
     def __init__(self, config: Dict = None):
         self.config = config or {}
@@ -26,37 +25,28 @@ class SKUMatcher:
 
     def remove_manufacturer_prefix(self, sku: str, source: str = None) -> str:
         """
-        Видалити префікс виробника з SKU
+        Remove manufacturer prefix from SKU
         
-        ⚠️ ВАЖЛИВО: Префікс видаляємо для Coleman та 1StopBedrooms!
-        Інші джерела (AFA, Emma Mason) залишаємо без змін.
-        
-        Приклади:
-        - Coleman: WWB-DV-NS-69072D-GRA → DV-NS-69072D-GRA
-        - 1StopBedrooms: STS-ABC-123 → ABC-123
-        - Emma Mason: DV-NS-69072D-GRA (без змін)
-        
-        Префікси:
-        - Coleman: WWB-, INT-, HOM-, etc. (будь-який)
-        - 1StopBedrooms: STS-, ACM-, APH-, LEG-, MAR- (будь-який)
+        ⚠️ IMPORTANT: Remove the prefix for Coleman and 1StopBedrooms!
+        Leave other sources (AFA, Emma Mason) unchanged.
         
         Args:
-            sku: SKU з можливим префіксом
-            source: Джерело SKU ('coleman', 'onestopbedrooms', 'afastores', 'emmamason')
+            sku: SKU with possible prefix
+            source: SKU source (‘coleman’, ‘onestopbedrooms’, ‘afastores’, ‘emmamason’)
         
         Returns:
-            SKU без префіксу (для Coleman та 1StopBedrooms)
+            SKU without prefix (for Coleman and 1StopBedrooms)
         """
-        # ✅ КРИТИЧНО: Видаляти префікс ТІЛЬКИ для Coleman та 1StopBedrooms!
+        # Remove the prefix ONLY for Coleman and 1StopBedrooms!
         if source not in ('coleman', 'onestopbedrooms'):
             return sku
         
         if not sku or '-' not in sku:
             return sku
         
-        # ✅ УНІВЕРСАЛЬНИЙ ПІДХІД: Завжди видаляємо перший сегмент до першого дефісу
-        # Це працює для будь-яких префіксів (WWB-, INT-, STS-, ACM-, etc.)
-        parts = sku.split('-', 1)  # Розділити на перший сегмент та решту
+        # UNIVERSAL APPROACH: Always remove the first segment before the first hyphen.
+        # This works for any prefixes.
+        parts = sku.split('-', 1)  # Divide into the first segment and the rest
         
         if len(parts) == 2:
             logger.debug(f"Removed {source} prefix '{parts[0]}' from SKU: {sku} → {parts[1]}")
@@ -67,27 +57,27 @@ class SKUMatcher:
 
     def normalize_sku(self, sku, source: str = None) -> str:
         """
-        Нормалізувати SKU
+        Normalize SKU
         
         Args:
-            sku: SKU (може бути str, int, float)
-            source: Джерело SKU для правильної обробки префіксів
+            sku: SKU (can be str, int, float)
+            source: SKU source for correct prefix handling
         
         Returns:
-            Нормалізований SKU (lowercase, без префіксів для Coleman)
+            Normalized SKU (lowercase, no prefixes for Coleman)
         """
         if not sku:
             return ""
         
-        # Конвертувати в string якщо це int/float
+        # Convert to string if it is int/float
         if isinstance(sku, (int, float)):
             sku = str(int(sku))
             logger.debug(f"Converted numeric SKU to string: {sku}")
         
-        # Тепер можна safely працювати зі string
+        # Now you can safely work with strings
         sku = str(sku).strip()
         
-        # ✅ НОВИЙ ПАРАМЕТР: Видалити префікс ТІЛЬКИ для Coleman
+        # Remove prefix ONLY for Coleman
         sku = self.remove_manufacturer_prefix(sku, source=source)
         
         if not self.case_sensitive:
@@ -98,45 +88,45 @@ class SKUMatcher:
     
     def split_sku(self, sku_string, source: str = None) -> List[str]:
         """
-        Розділити SKU string на частини
+        Split SKU string into parts
         
         Args:
-            sku_string: SKU або список SKU розділених delimiter
-            source: Джерело для правильної обробки префіксів
-                   ⚠️ Для Emma SKU передавати source=None, щоб не видаляти "префікс"
+            sku_string: SKU or list of SKUs separated by a delimiter
+            source: Source for correct prefix processing
+                    ⚠️ For Emma SKU, pass source=None to avoid removing the “prefix”
         """
         if not sku_string:
             return []
         
-        # Нормалізувати перед split
+        # Normalize before split
         normalized = self.normalize_sku(sku_string, source=source)
         
         if not normalized:
             return []
         
-        # Розділити на частини
+        # Divide into parts
         skus = normalized.split(self.delimiter)
         
-        # Прибрати порожні та пробіли
+        # Remove empty and blank spaces
         result = [sku.strip() for sku in skus if sku.strip()]
         
         return result
     
     def exact_match(self, sku1, sku2, source: str = None) -> bool:
         """
-        Точний збіг SKU
+        Exact SKU match
         
         Args:
-            sku1: Перший SKU
-            sku2: Другий SKU
-            source: Джерело для правильної обробки префіксів
+            sku1: First SKU
+            sku2: Second SKU
+            source: Source for correct prefix processing
         """
         norm1 = self.normalize_sku(sku1, source=source)
         norm2 = self.normalize_sku(sku2, source=source)
         return norm1 == norm2
     
     def fuzzy_match(self, sku1, sku2, source: str = None) -> float:
-        """Fuzzy matching (схожість)"""
+        """Fuzzy matching (similarity)"""
         norm1 = self.normalize_sku(sku1, source=source)
         norm2 = self.normalize_sku(sku2, source=source)
         
@@ -147,35 +137,20 @@ class SKUMatcher:
     
     def matches(self, sku1, sku2, source: str = None) -> bool:
         """
-        Перевірити чи SKU1 збігається з SKU2
+        Check whether SKU1 matches SKU2
         
-        ✅ OPTIMIZED LOGIC v3.0 для Coleman та 1StopBedrooms:
-        1. Спочатку ПОВНИЙ збіг (весь string)
-        2. Розділити Emma SKU на ";" і перевірити кожну частину
-        3. Для кожної частини: прибрати префікс з Coleman/1StopBedrooms SKU і перевірити знову
-        
-        Приклади:
-        - Emma: "DV-NS-69072D-GRA" vs Coleman: "WWB-DV-NS-69072D-GRA"
-          → Крок 1: Немає збігу
-          → Крок 2: Прибрати префікс "WWB-" → "DV-NS-69072D-GRA" → ЗБІГ! ✓
-        
-        - Emma: "ABC-123" vs 1StopBedrooms: "STS-ABC-123"
-          → Крок 1: Немає збігу
-          → Крок 2: Прибрати префікс "STS-" → "ABC-123" → ЗБІГ! ✓
-        
-        - Emma: "ABC-123;DEF-456" vs Coleman: "INT-DEF-456"
-          → Крок 1: Немає збігу
-          → Крок 2: Розділити Emma → ["ABC-123", "DEF-456"]
-          → Крок 3: "DEF-456" vs "DEF-456" (без префіксу) → ЗБІГ! ✓
+        OPTIMIZED LOGIC for Coleman and 1StopBedrooms:
+            1. First, check for a FULL match (the entire string)
+            2. Split the Emma SKU at “;” and check each part
+            3. For each part: remove the prefix from the Coleman/1StopBedrooms SKU and check again
         
         Args:
-            sku1: Emma SKU (може містити кілька SKU розділених ";")
+            sku1: Emma SKU (may contain multiple SKUs separated by “;”)
             sku2: Competitor SKU (Coleman, 1StopBedrooms, AFA)
-            source: Джерело sku2 ('coleman', 'onestopbedrooms', 'afastores')
+            source: Source sku2 (‘coleman’, ‘onestopbedrooms’, ‘afastores’)
         """
-        # ═══════════════════════════════════════════════════════════════
-        # КРОК 1: Перевірити ПОВНИЙ збіг (весь string цілком)
-        # ═══════════════════════════════════════════════════════════════
+
+        # STEP 1: Check for a PERFECT match (the entire string)
         if self.strategy == 'exact':
             if self.exact_match(sku1, sku2, source=source):
                 logger.debug(f"✓ Full SKU match: '{sku1}' == '{sku2}'")
@@ -186,37 +161,32 @@ class SKUMatcher:
                 logger.debug(f"✓ Full SKU fuzzy match: '{sku1}' ~= '{sku2}' (similarity: {similarity:.2f})")
                 return True
         
-        # ═══════════════════════════════════════════════════════════════
-        # КРОК 2: Розділити Emma SKU на частини (якщо є ";")
-        # ═══════════════════════════════════════════════════════════════
-        # Для Emma SKU НЕ передаємо source, щоб не видалити префікс
+        # STEP 2: Split Emma SKU into parts (if there is a “;”)
         sku1_list = self.split_sku(sku1, source=None)
         
         if not sku1_list:
             return False
         
-        # Якщо SKU1 не містив delimiter - вже перевірили вище
+        # If SKU1 did not contain a delimiter - already checked above
         if len(sku1_list) == 1 and self.delimiter not in str(sku1):
-            # ═══════════════════════════════════════════════════════════════
-            # КРОК 3: Для простого SKU - перевірити з видаленням префіксу
-            # ═══════════════════════════════════════════════════════════════
+
+            # STEP 3: For a simple SKU, check with the prefix removed
             if source in ('coleman', 'onestopbedrooms'):
-                # Normalize Emma SKU (без source)
+                # Normalize Emma SKU (without source)
                 norm_sku1 = self.normalize_sku(sku1, source=None)
-                # Normalize competitor SKU БЕЗ префіксу
+                # Normalize competitor SKU WITHOUT prefix
                 norm_sku2_no_prefix = self.normalize_sku(sku2, source=source)
                 
                 if norm_sku1 == norm_sku2_no_prefix:
                     logger.debug(f"✓ SKU match after prefix removal: '{sku1}' == '{sku2}' (without prefix)")
                     return True
             
-            return False  # Вже перевірили всі варіанти
+            return False  # All options have already been checked
         
-        # ═══════════════════════════════════════════════════════════════
-        # КРОК 3: Перевірити кожну частину Emma SKU
+        # STEP 4: Check each part of Emma SKU
         # ═══════════════════════════════════════════════════════════════
         for emma_part in sku1_list:
-            # Спочатку перевірити звичайний збіг
+            # First, check for a regular coincidence
             if self.strategy == 'exact':
                 if self.exact_match(emma_part, sku2, source=source):
                     logger.debug(f"✓ Partial SKU match: '{emma_part}' (from '{sku1}') == '{sku2}'")
@@ -227,7 +197,7 @@ class SKUMatcher:
                     logger.debug(f"✓ Partial SKU fuzzy match: '{emma_part}' ~= '{sku2}' (similarity: {similarity:.2f})")
                     return True
             
-            # ✅ КРОК: Якщо Coleman/1StopBedrooms - перевірити БЕЗ префіксу
+            # If Coleman/1StopBedrooms - check WITHOUT prefix
             if source in ('coleman', 'onestopbedrooms'):
                 norm_emma = self.normalize_sku(emma_part, source=None)
                 norm_competitor_no_prefix = self.normalize_sku(sku2, source=source)
@@ -241,16 +211,16 @@ class SKUMatcher:
     def find_matching_product(self, target_sku, products: List[Dict], 
                             sku_field: str = 'sku', source: str = None) -> Optional[Dict]:
         """
-        Знайти товар в списку за SKU
+        Find a product in the list by SKU
         
-        ⚠️ WARNING: Повертає ПЕРШИЙ знайдений match!
-        Для вибору найкращої ціни використовуйте find_best_match()
+        ⚠️ WARNING: Returns the FIRST match found!
+        To select the best price, use find_best_match()
         
         Args:
-            target_sku: SKU для пошуку
-            products: Список товарів
-            sku_field: Поле з SKU в словнику товару
-            source: Джерело products ('coleman', 'onestopbedrooms', 'afastores')
+            target_sku: SKU for search
+            products: List of products
+            sku_field: Field with SKU in the product dictionary
+            source: Source products (‘coleman’, ‘onestopbedrooms’, ‘afastores’)
         """
         for product in products:
             product_sku = product.get(sku_field, '')
@@ -261,23 +231,18 @@ class SKUMatcher:
         return None
     
     def find_all_matching_products(self, target_sku, products: List[Dict],
-                                   sku_field: str = 'sku', source: str = None) -> List[Dict]:
+                                    sku_field: str = 'sku', source: str = None) -> List[Dict]:
         """
-        ✅ NEW: Знайти ВСІ товари які матчаться з target_sku
-        
-        Приклад:
-        - Наш SKU: "ABC;DEF;GHI"
-        - Competitor має: "ABC" ($100), "DEF" ($90), "GHI" ($95)
-        - Результат: [товар ABC, товар DEF, товар GHI]
+        Find ALL products that match target_sku
         
         Args:
-            target_sku: SKU для пошуку (може містити кілька через delimiter)
-            products: Список товарів competitor
-            sku_field: Поле з SKU в словнику
-            source: Джерело ('coleman', 'onestopbedrooms', 'afastores')
+            target_sku: SKU for search (may contain multiple items separated by a delimiter)
+            products: List of competitor products
+            sku_field: Field with SKU in the dictionary
+            source: Source (‘coleman’, ‘onestopbedrooms’, ‘afastores’)
         
         Returns:
-            Список ВСІХ товарів що матчаться (може бути пустий)
+            List of ALL matching products (may be empty)
         """
         matching_products = []
         
@@ -290,35 +255,27 @@ class SKUMatcher:
         return matching_products
     
     def find_best_match(self, target_sku, products: List[Dict],
-                       sku_field: str = 'sku', price_field: str = 'price',
-                       source: str = None) -> Optional[Dict]:
+                        sku_field: str = 'sku', price_field: str = 'price',
+                        source: str = None) -> Optional[Dict]:
         """
-        ✅ NEW: Знайти найкращий match (з найнижчою ціною)
+        Find the best match (with the lowest price)
         
         Логіка:
-        1. Знаходить ВСІ товари що матчаться
-        2. Серед них вибирає той що має найнижчу ціну
-        3. Якщо жоден не матчиться - повертає None
-        
-        Приклад:
-        - Наш SKU: "ABC;DEF;GHI"
-        - Competitor має:
-          * "ABC" - $100
-          * "DEF" - $90  ← Найкраща ціна!
-          * "GHI" - $95
-        - Результат: товар "DEF" ($90)
-        
+            1. Finds ALL matching products
+            2. Selects the one with the lowest price among them
+            3. If none match, returns None
+            
         Args:
-            target_sku: SKU для пошуку
-            products: Список товарів
-            sku_field: Поле з SKU
-            price_field: Поле з ціною для порівняння
-            source: Джерело для matching logic
+            target_sku: SKU for search
+            products: List of products
+            sku_field: Field with SKU
+            price_field: Field with price for comparison
+            source: Source for matching logic
         
         Returns:
-            Товар з найнижчою ціною або None
+            Product with the lowest price or None
         """
-        # Знайти всі матчі
+        # Find all matches
         all_matches = self.find_all_matching_products(
             target_sku, 
             products, 
@@ -329,11 +286,11 @@ class SKUMatcher:
         if not all_matches:
             return None
         
-        # Якщо один match - одразу повернути
+        # If there is one match, return immediately
         if len(all_matches) == 1:
             return all_matches[0]
         
-        # Якщо кілька - вибрати з найнижчою ціною
+        # If there are several, choose the one with the lowest price
         logger.debug(f"Found {len(all_matches)} matches for SKU '{target_sku}', selecting best price...")
         
         best_product = None
@@ -342,14 +299,14 @@ class SKUMatcher:
         for product in all_matches:
             price = product.get(price_field)
             
-            # Конвертувати ціну в float
+            # Convert price to float
             try:
                 if isinstance(price, str):
                     price = float(price.replace(',', '.').replace('$', '').strip())
                 elif isinstance(price, (int, float)):
                     price = float(price)
                 else:
-                    continue  # Пропустити якщо немає ціни
+                    continue  # Skip if there is no price
                 
                 if price > 0 and price < best_price:
                     best_price = price
@@ -365,296 +322,5 @@ class SKUMatcher:
         return best_product
 
 
-# if __name__ == "__main__":
-    # # Тестування improved logic
-    # import logging
-    # logging.basicConfig(
-    #     level=logging.DEBUG,
-    #     format='%(levelname)-8s | %(message)s'
-    # )
-    
-    # print("\n" + "="*60)
-    # print("SKU MATCHER v2.0 - IMPROVED LOGIC TESTS")
-    # print("="*60)
-    
-    # matcher = SKUMatcher({'split_delimiter': ';', 'case_sensitive': False})
-    
-    # # Test 1: Повний збіг (весь string)
-    # print("\n" + "="*60)
-    # print("TEST 1: Full string match (with delimiter)")
-    # print("="*60)
-    # sku1 = "DK-HO-6630C-RFO-C;DK-HO-6852H-RFO-C"
-    # sku2 = "DK-HO-6630C-RFO-C;DK-HO-6852H-RFO-C"
-    # result = matcher.matches(sku1, sku2)
-    # print(f"SKU1: {sku1}")
-    # print(f"SKU2: {sku2}")
-    # print(f"Result: {result} ✓" if result else f"Result: {result} ✗")
-    # assert result == True, "Should match full string"
-    
-    # # Test 2: Частковий збіг (одна частина)
-    # print("\n" + "="*60)
-    # print("TEST 2: Partial match (one part matches)")
-    # print("="*60)
-    # sku1 = "DK-HO-6630C-RFO-C;DK-HO-6852H-RFO-C"
-    # sku2 = "DK-HO-6630C-RFO-C"
-    # result = matcher.matches(sku1, sku2)
-    # print(f"SKU1: {sku1}")
-    # print(f"SKU2: {sku2}")
-    # print(f"Result: {result} ✓" if result else f"Result: {result} ✗")
-    # assert result == True, "Should match one part"
-    
-    # # Test 3: Немає збігу
-    # print("\n" + "="*60)
-    # print("TEST 3: No match")
-    # print("="*60)
-    # sku1 = "DK-HO-6630C-RFO-C;DK-HO-6852H-RFO-C"
-    # sku2 = "TOTALLY-DIFFERENT-SKU"
-    # result = matcher.matches(sku1, sku2)
-    # print(f"SKU1: {sku1}")
-    # print(f"SKU2: {sku2}")
-    # print(f"Result: {result} ✗" if not result else f"Result: {result} ✓")
-    # assert result == False, "Should not match"
-    
-    # # Test 4: Простий SKU (без delimiter)
-    # print("\n" + "="*60)
-    # print("TEST 4: Simple SKU (no delimiter)")
-    # print("="*60)
-    # sku1 = "ABC-123-XYZ"
-    # sku2 = "ABC-123-XYZ"
-    # result = matcher.matches(sku1, sku2)
-    # print(f"SKU1: {sku1}")
-    # print(f"SKU2: {sku2}")
-    # print(f"Result: {result} ✓" if result else f"Result: {result} ✗")
-    # assert result == True, "Should match simple SKU"
-    
-    # # Test 5: Case insensitive
-    # print("\n" + "="*60)
-    # print("TEST 5: Case insensitive")
-    # print("="*60)
-    # sku1 = "ABC-123-XYZ;DEF-456-UVW"
-    # sku2 = "def-456-uvw"
-    # result = matcher.matches(sku1, sku2)
-    # print(f"SKU1: {sku1}")
-    # print(f"SKU2: {sku2}")
-    # print(f"Result: {result} ✓" if result else f"Result: {result} ✗")
-    # assert result == True, "Should match case insensitive"
-    
-    # # Test 6: Coleman prefix removal (старий приклад)
-    # print("\n" + "="*60)
-    # print("TEST 6: Coleman prefix removal (INT prefix)")
-    # print("="*60)
-    # sku1 = "BY-CA-5640-BLK-C"
-    # sku2 = "INT-BY-CA-5640-BLK-C"
-    # result = matcher.matches(sku1, sku2, source='coleman')
-    # print(f"SKU1 (Emma): {sku1}")
-    # print(f"SKU2 (Coleman): {sku2}")
-    # print(f"Result: {result} ✓" if result else f"Result: {result} ✗")
-    # assert result == True, "Should match after removing Coleman prefix"
-    
-    # # Test 6.1: Coleman prefix removal (новий приклад - WWB)
-    # print("\n" + "="*60)
-    # print("TEST 6.1: Coleman prefix removal (WWB prefix)")
-    # print("="*60)
-    # sku1 = "DV-NS-69072D-GRA"
-    # sku2 = "WWB-DV-NS-69072D-GRA"
-    # result = matcher.matches(sku1, sku2, source='coleman')
-    # print(f"SKU1 (Emma): {sku1}")
-    # print(f"SKU2 (Coleman): {sku2}")
-    # print(f"Result: {result} ✓" if result else f"Result: {result} ✗")
-    # assert result == True, "Should match after removing WWB prefix"
-    
-    # # Test 6.2: Coleman prefix removal з multiple SKU в Emma
-    # print("\n" + "="*60)
-    # print("TEST 6.2: Coleman prefix with multiple Emma SKUs")
-    # print("="*60)
-    # sku1 = "ABC-123;DV-NS-69072D-GRA;XYZ-789"
-    # sku2 = "WWB-DV-NS-69072D-GRA"
-    # result = matcher.matches(sku1, sku2, source='coleman')
-    # print(f"SKU1 (Emma): {sku1}")
-    # print(f"SKU2 (Coleman): {sku2}")
-    # print(f"Result: {result} ✓" if result else f"Result: {result} ✗")
-    # assert result == True, "Should match second part after removing prefix"
-    
-    # # Test 6.3: 1StopBedrooms prefix removal (STS prefix)
-    # print("\n" + "="*60)
-    # print("TEST 6.3: 1StopBedrooms prefix removal (STS prefix)")
-    # print("="*60)
-    # sku1 = "ABC-123-XYZ"
-    # sku2 = "STS-ABC-123-XYZ"
-    # result = matcher.matches(sku1, sku2, source='onestopbedrooms')
-    # print(f"SKU1 (Emma): {sku1}")
-    # print(f"SKU2 (1StopBedrooms): {sku2}")
-    # print(f"Result: {result} ✓" if result else f"Result: {result} ✗")
-    # assert result == True, "Should match after removing STS prefix"
-    
-    # # Test 6.4: 1StopBedrooms prefix removal (ACM prefix)
-    # print("\n" + "="*60)
-    # print("TEST 6.4: 1StopBedrooms prefix removal (ACM prefix)")
-    # print("="*60)
-    # sku1 = "DEF-456"
-    # sku2 = "ACM-DEF-456"
-    # result = matcher.matches(sku1, sku2, source='onestopbedrooms')
-    # print(f"SKU1 (Emma): {sku1}")
-    # print(f"SKU2 (1StopBedrooms): {sku2}")
-    # print(f"Result: {result} ✓" if result else f"Result: {result} ✗")
-    # assert result == True, "Should match after removing ACM prefix"
-    
-    # # Test 6.5: 1StopBedrooms prefix removal з multiple Emma SKUs
-    # print("\n" + "="*60)
-    # print("TEST 6.5: 1StopBedrooms prefix with multiple Emma SKUs")
-    # print("="*60)
-    # sku1 = "ABC-123;DEF-456;GHI-789"
-    # sku2 = "LEG-DEF-456"
-    # result = matcher.matches(sku1, sku2, source='onestopbedrooms')
-    # print(f"SKU1 (Emma): {sku1}")
-    # print(f"SKU2 (1StopBedrooms): {sku2}")
-    # print(f"Result: {result} ✓" if result else f"Result: {result} ✗")
-    # assert result == True, "Should match second part after removing LEG prefix"
-    
-    # # Test 7: Int SKU
-    # print("\n" + "="*60)
-    # print("TEST 7: Integer SKU")
-    # print("="*60)
-    # sku1 = 12345
-    # sku2 = "12345"
-    # result = matcher.matches(sku1, sku2)
-    # print(f"SKU1: {sku1} (int)")
-    # print(f"SKU2: {sku2} (str)")
-    # print(f"Result: {result} ✓" if result else f"Result: {result} ✗")
-    # assert result == True, "Should match int SKU"
-    
-    # print("\n" + "="*60)
-    # print("✅ ALL TESTS PASSED!")
-    # print("="*60)
-    # print("\nKEY IMPROVEMENTS v3.0:")
-    # print("1. ✓ Full string match checked FIRST")
-    # print("2. ✓ Partial matching as fallback")
-    # print("3. ✓ Coleman prefix removal (ANY prefix, not just known ones)")
-    # print("4. ✓ 1StopBedrooms prefix removal (STS-, ACM-, APH-, LEG-, MAR-)")
-    # print("5. ✓ Works with multiple Emma SKUs (delimiter ';')")
-    # print("6. ✓ Optimized order: full → split → no-prefix")
-    # print("7. ✓ Better debug logging")
-    # print("="*60 + "\n")
-    
-    # # ═══════════════════════════════════════════════════════════════
-    # # ДОДАТКОВІ ТЕСТИ: find_all_matching_products + find_best_match
-    # # ═══════════════════════════════════════════════════════════════
-    
-    # print("\n" + "="*60)
-    # print("ADVANCED TESTS: Multiple Matches")
-    # print("="*60)
-    
-    # # Test 8: Знайти всі матчі
-    # print("\n" + "="*60)
-    # print("TEST 8: Find ALL matching products")
-    # print("="*60)
-    
-    # our_sku = "ABC-123;DEF-456;GHI-789"
-    # competitor_products = [
-    #     {'sku': 'ABC-123', 'price': 100.0, 'name': 'Product A'},
-    #     {'sku': 'DEF-456', 'price': 90.0, 'name': 'Product B'},  # ← Найнижча ціна!
-    #     {'sku': 'GHI-789', 'price': 95.0, 'name': 'Product C'},
-    #     {'sku': 'XYZ-000', 'price': 85.0, 'name': 'Product D'},  # Не матчиться
-    # ]
-    
-    # print(f"Our SKU: {our_sku}")
-    # print(f"Competitor has {len(competitor_products)} products")
-    
-    # all_matches = matcher.find_all_matching_products(our_sku, competitor_products)
-    
-    # print(f"\nFound {len(all_matches)} matches:")
-    # for match in all_matches:
-    #     print(f"  - {match['sku']}: ${match['price']} ({match['name']})")
-    
-    # assert len(all_matches) == 3, f"Should find 3 matches, got {len(all_matches)}"
-    # print("\n✓ Correctly found all 3 matching products")
-    
-    # # Test 9: Вибрати найкращий (найнижчу ціну)
-    # print("\n" + "="*60)
-    # print("TEST 9: Find BEST match (lowest price)")
-    # print("="*60)
-    
-    # best_match = matcher.find_best_match(our_sku, competitor_products)
-    
-    # print(f"Our SKU: {our_sku}")
-    # print(f"\nBest match:")
-    # print(f"  SKU: {best_match['sku']}")
-    # print(f"  Price: ${best_match['price']}")
-    # print(f"  Name: {best_match['name']}")
-    
-    # assert best_match['sku'] == 'DEF-456', "Should select DEF-456 (lowest price)"
-    # assert best_match['price'] == 90.0, "Best price should be $90"
-    # print("\n✓ Correctly selected product with lowest price!")
-    
-    # # Test 10: Порівняння старого vs нового методу
-    # print("\n" + "="*60)
-    # print("TEST 10: OLD vs NEW method comparison")
-    # print("="*60)
-    
-    # print(f"Our SKU: {our_sku}")
-    # print(f"\n{'='*60}")
-    # print("OLD METHOD (find_matching_product):")
-    # print("="*60)
-    
-    # old_result = matcher.find_matching_product(our_sku, competitor_products)
-    # print(f"Returns: {old_result['sku']} - ${old_result['price']}")
-    # print(f"❌ This is the FIRST match, not the best!")
-    
-    # print(f"\n{'='*60}")
-    # print("NEW METHOD (find_best_match):")
-    # print("="*60)
-    
-    # new_result = matcher.find_best_match(our_sku, competitor_products)
-    # print(f"Returns: {new_result['sku']} - ${new_result['price']}")
-    # print(f"✅ This is the BEST match (lowest price)!")
-    
-    # price_diff = old_result['price'] - new_result['price']
-    # print(f"\n💰 Savings: ${price_diff:.2f} per product")
-    # print(f"   With 1000 products: ${price_diff * 1000:.2f} total impact!")
-    
-    # # Test 11: Коли жоден не матчиться
-    # print("\n" + "="*60)
-    # print("TEST 11: No matches scenario")
-    # print("="*60)
-    
-    # no_match_sku = "TOTALLY-DIFFERENT-SKU"
-    # result = matcher.find_best_match(no_match_sku, competitor_products)
-    
-    # print(f"Our SKU: {no_match_sku}")
-    # print(f"Result: {result}")
-    
-    # assert result is None, "Should return None when no matches"
-    # print("✓ Correctly returns None when no matches")
-    
-    # # Test 12: Один match (оптимізація)
-    # print("\n" + "="*60)
-    # print("TEST 12: Single match (optimization)")
-    # print("="*60)
-    
-    # single_sku = "ABC-123"
-    # result = matcher.find_best_match(single_sku, competitor_products)
-    
-    # print(f"Our SKU: {single_sku}")
-    # print(f"Result: {result['sku']} - ${result['price']}")
-    
-    # assert result['sku'] == 'ABC-123', "Should find single match"
-    # print("✓ Correctly handles single match (no need to compare prices)")
-    
-    # print("\n" + "="*60)
-    # print("✅ ALL ADVANCED TESTS PASSED!")
-    # print("="*60)
-    
-    # print("\n" + "="*60)
-    # print("📊 SUMMARY: Why find_best_match() matters")
-    # print("="*60)
-    # print("\n✅ ADVANTAGES:")
-    # print("  1. Finds ALL possible matches (not just first)")
-    # print("  2. Selects LOWEST price (best for competition)")
-    # print("  3. More accurate pricing decisions")
-    # print("  4. Potential savings: $10+ per product on average")
-    # print("\n⚠️  WHEN TO USE:")
-    # print("  - find_matching_product(): Quick check, don't care about price")
-    # print("  - find_best_match(): Pricing decisions, want lowest competitor price")
-    # print("\n💡 RECOMMENDATION:")
-    # print("  Use find_best_match() in main.py for competitor matching!")
-    # print("="*60 + "\n")
+if __name__ == "__main__":
+    pass

@@ -1,11 +1,5 @@
 """
-Emma Mason Algolia API Scraper v5.1 - FIXED
-✅ Автоматичний обхід pagination limit (1000 товарів)
-✅ Розбиття великих брендів через collection_style facets
-✅ Рекурсивне розбиття якщо collection_style >1000
-✅ Чистий JSON без HTML parsing
-✅ 100% всіх товарів для всіх брендів
-✅ ВИПРАВЛЕНО: Правильна обробка expired API key (400/403 errors)
+Emma Mason Algolia API Scraper v5.1
 """
 
 import time
@@ -18,7 +12,6 @@ from typing import List, Dict, Optional, Set, Tuple
 from datetime import datetime
 from urllib.parse import quote
 
-# Smart imports
 try:
     from ..modules.error_logger import ScraperErrorMixin
 except ImportError:
@@ -33,7 +26,6 @@ except ImportError:
                 logger = logging.getLogger("emmamason_algolia")
                 logger.error(f"Scraping error: {error}")
 
-# requests
 try:
     import requests
 except ImportError:
@@ -49,7 +41,7 @@ class AlgoliaAPIKeyExpired(Exception):
     pass
 
 
-class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
+class EmmaMasonAlgoliaScraper(ScraperErrorMixin):
     """
     Scraper для Emma Mason через Algolia Search API
     v5.1: Автоматичний обхід pagination limit через facets
@@ -58,7 +50,7 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
     # Algolia API Configuration
     ALGOLIA_URL = "https://ctz7lv7pje-dsn.algolia.net/1/indexes/*/queries"
     ALGOLIA_APP_ID = "CTZ7LV7PJE"
-    ALGOLIA_API_KEY = "MjgzMmViMDZiYmYzZTA4YTY2NjhkYjNkMjAyMzUxYmE5Y2Y4MzYwYzZmMmRiODU0NzQxMmY0YWFmNDM3YjllZHRhZ0ZpbHRlcnM9JnZhbGlkVW50aWw9MTc2OTUxMTczNw=="
+    ALGOLIA_API_KEY = "M2JlYTVmYmNmZTdkMjIzZWQ0OWY5ZGFmZjZjMDlmY2M3NmU5Y2VjZDhiYzM1NjllYmIzMDg0OWVkZTBiY2M0M3RhZ0ZpbHRlcnM9JnZhbGlkVW50aWw9MTc3MDc0OTAxMQ=="
     INDEX_NAME = "magento2_emmamason_products"
     
     # Pagination limit
@@ -90,6 +82,19 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         logger.info("Emma Mason Algolia API Scraper v5.1 (Smart Pagination)")
         logger.info("="*60)
         logger.info(f"Feature: Auto-split via facets to bypass 1000 limit")
+
+        self.stats = {
+            'total_products': 0,
+            'unique_products': 0,
+            'errors': 0,
+            'brands_processed': 0,
+            'successful_retries': 0,
+            'failed_requests': 0,
+            'api_key_refreshes': 0
+        }
+
+        # Track failed requests details
+        self.failed_requests_list = []
     
     def _random_delay(self):
         time.sleep(random.uniform(self.delay_min, self.delay_max))
@@ -160,9 +165,15 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         
         return '&'.join([f"{k}={quote(str(v))}" for k, v in params.items()])
     
-    def _fetch_algolia(self, params_string: str) -> Optional[Dict]:
+    def _fetch_algolia(self, params_string: str, 
+                    context: dict = None) -> Optional[Dict]:
         """
         Виконати запит до Algolia API
+        ✨ IMPROVED: Детальне логування для логів та Google Sheets
+        
+        Args:
+            params_string: URL parameters для Algolia
+            context: Додатковий context (brand, facets, page) для логування
         
         Returns:
             Response data або None
@@ -170,6 +181,16 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         Raises:
             AlgoliaAPIKeyExpired: Якщо API key expired (400/403)
         """
+        # Parse context
+        brand = context.get('brand', 'Unknown') if context else 'Unknown'
+        facets = context.get('facets', '') if context else ''
+        page = context.get('page', 0) if context else 0
+        
+        item_desc = f"{brand}" + (f" - {facets}" if facets else "")
+        
+        last_error = None
+        last_status_code = None
+        
         for attempt in range(1, self.retry_attempts + 1):
             try:
                 headers = {
@@ -193,24 +214,71 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
                     headers=headers, timeout=self.timeout
                 )
                 
-                # ═══════════════════════════════════════════════════════
-                # ✅ КРИТИЧНО: Перевірка на expired key
-                # ═══════════════════════════════════════════════════════
+                # ✅ SUCCESS
                 if response.status_code == 200:
+                    # Log successful retry
+                    if attempt > 1:
+                        logger.info(
+                            f"✅ Retry SUCCESS - Item: '{item_desc}', "
+                            f"Page: {page} (succeeded on attempt {attempt}/{self.retry_attempts})"
+                        )
+                        if hasattr(self, 'stats'):
+                            self.stats['successful_retries'] += 1
+                    
                     return response.json()
                 
+                # ✅ API KEY ISSUE
                 elif response.status_code in [400, 403]:
-                    # API key expired або invalid
+                    last_status_code = response.status_code
+                    
                     logger.error(f"❌ API key issue - Status {response.status_code}")
                     logger.error(f"Response: {response.text[:200]}")
+                    
+                    # Log to Google Sheets
+                    if hasattr(self, 'log_scraping_error'):
+                        self.log_scraping_error(
+                            error=Exception(f"API key expired (HTTP {response.status_code})"),
+                            url=self.ALGOLIA_URL,
+                            context={
+                                'method': '_fetch_algolia',
+                                'brand': brand,
+                                'facets': facets,
+                                'page': page,
+                                'status_code': response.status_code,
+                                'error_type': 'API_KEY_EXPIRED'
+                            }
+                        )
                     
                     # Викинути exception для автоматичного refresh
                     raise AlgoliaAPIKeyExpired(
                         f"API key expired or invalid (status {response.status_code})"
                     )
                 
+                # ✅ OTHER HTTP ERROR
                 else:
-                    logger.warning(f"Status {response.status_code} (attempt {attempt})")
+                    last_error = Exception(f"HTTP {response.status_code}")
+                    last_status_code = response.status_code
+                    
+                    logger.warning(
+                        f"⚠️  HTTP {response.status_code} - Item: '{item_desc}', "
+                        f"Page: {page}, Attempt: {attempt}/{self.retry_attempts}"
+                    )
+                    
+                    # Log to Google Sheets
+                    if hasattr(self, 'log_scraping_error'):
+                        self.log_scraping_error(
+                            error=last_error,
+                            url=self.ALGOLIA_URL,
+                            context={
+                                'method': '_fetch_algolia',
+                                'brand': brand,
+                                'facets': facets,
+                                'page': page,
+                                'attempt': f"{attempt}/{self.retry_attempts}",
+                                'status_code': response.status_code
+                            }
+                        )
+                    
                     if attempt < self.retry_attempts:
                         time.sleep(2)
             
@@ -219,6 +287,7 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
                 raise
             
             except Exception as e:
+                last_error = e
                 error_msg = str(e).lower()
                 
                 # Перевірити чи це може бути expired key
@@ -227,11 +296,51 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
                 ]):
                     raise AlgoliaAPIKeyExpired(f"API authentication error: {e}")
                 
-                logger.error(f"Request error (attempt {attempt}): {e}")
+                logger.warning(
+                    f"⚠️  Request error - Item: '{item_desc}', "
+                    f"Page: {page}, Attempt: {attempt}/{self.retry_attempts}, "
+                    f"Error: {str(e)[:100]}"
+                )
+                
+                # Log to Google Sheets
+                if hasattr(self, 'log_scraping_error'):
+                    self.log_scraping_error(
+                        error=e,
+                        url=self.ALGOLIA_URL,
+                        context={
+                            'method': '_fetch_algolia',
+                            'brand': brand,
+                            'facets': facets,
+                            'page': page,
+                            'attempt': f"{attempt}/{self.retry_attempts}",
+                            'error_type': type(e).__name__
+                        }
+                    )
+                
                 if attempt < self.retry_attempts:
                     time.sleep(2)
         
-        # Якщо всі спроби невдалі
+        # ✅ FINAL FAILURE
+        if last_error:
+            logger.error(
+                f"❌ FINAL FAILURE - Item: '{item_desc}', Page: {page} - "
+                f"gave up after {self.retry_attempts} attempts"
+            )
+            
+            # Track failed request
+            if hasattr(self, 'failed_requests_list'):
+                self.failed_requests_list.append({
+                    'brand': brand,
+                    'facets': facets,
+                    'page': page,
+                    'error': str(last_error)[:100],
+                    'status_code': last_status_code
+                })
+            
+            if hasattr(self, 'stats'):
+                self.stats['failed_requests'] += 1
+                self.stats['errors'] += 1
+        
         logger.error("All retry attempts failed")
         return None
     
@@ -253,7 +362,11 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
             hits=0  # Не треба hits, тільки facets
         )
         
-        data = self._fetch_algolia(params)
+        data = self._fetch_algolia(params, context={
+            'brand': brand_name,
+            'facets': current_facets,
+            'page': page
+        })
         
         if not data:
             return {}
@@ -329,8 +442,8 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         return ranges
     
     def _scrape_price_range(self, filters: List[Tuple[str, str]], 
-                           brand: str, seen_ids: Set[str],
-                           min_price: float, max_price: float) -> List[Dict]:
+                            brand: str, seen_ids: Set[str],
+                            min_price: float, max_price: float) -> List[Dict]:
         """
         Scrape товари в price range
         """
@@ -485,7 +598,7 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         return all_products
     
     def _scrape_simple(self, filters: List[Tuple[str, str]], 
-                      brand: str, seen_ids: Set[str]) -> List[Dict]:
+                        brand: str, seen_ids: Set[str]) -> List[Dict]:
         """
         Простий scraping (≤1000 товарів) з пагінацією
         """
@@ -597,37 +710,74 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         for brand, count in brands_stats.items():
             logger.info(f"  {brand}: {count}")
         
-        logger.info("="*60)
-        
+        self._print_scraping_summary(all_products, seen_skus)
+
         return all_products
+    
+    def _print_scraping_summary(self, products: List[Dict[str, str]], seen_skus: set):
+        """
+        Вивести детальну статистику scraping
+        ✨ NEW: Показує successful retries, failed requests, API key refreshes
+        
+        Args:
+            products: Список всіх зібраних products
+            seen_skus: Set унікальних SKU
+        """
+        logger.info("")
+        logger.info("="*70)
+        logger.info("EMMA MASON ALGOLIA SCRAPER SUMMARY")
+        logger.info("="*70)
+        
+        # Основна статистика
+        logger.info(f"📊 STATISTICS:")
+        logger.info(f"   Brands processed: {self.stats.get('brands_processed', 0)}/{len(self.BRANDS)}")
+        logger.info(f"   Total products: {len(products)}")
+        logger.info(f"   Unique SKUs: {len(seen_skus)}")
+        
+        logger.info("")
+        logger.info(f"🔄 RETRIES:")
+        logger.info(f"   Total errors: {self.stats.get('errors', 0)}")
+        logger.info(f"   Successful retries: {self.stats.get('successful_retries', 0)}")
+        logger.info(f"   Failed requests: {self.stats.get('failed_requests', 0)}")
+        logger.info(f"   API key refreshes: {self.stats.get('api_key_refreshes', 0)}")
+        
+        # ✅ Розрахувати success rate
+        if self.stats.get('errors', 0) > 0:
+            success_rate = (self.stats['successful_retries'] / self.stats['errors']) * 100
+            logger.info(f"   Retry success rate: {success_rate:.1f}%")
+        
+        # ✅ Показати failed requests якщо є
+        if self.failed_requests_list:
+            logger.warning("")
+            logger.warning(f"⚠️  FAILED REQUESTS ({len(self.failed_requests_list)}):")
+            
+            # Показати перші 10
+            for i, fr in enumerate(self.failed_requests_list[:10], 1):
+                status = f"HTTP {fr['status_code']}" if fr['status_code'] else "Error"
+                facets_str = f" - {fr['facets']}" if fr['facets'] else ""
+                logger.warning(
+                    f"   {i}. '{fr['brand']}{facets_str}' page {fr['page']} - "
+                    f"{status}: {fr['error']}"
+                )
+            
+            if len(self.failed_requests_list) > 10:
+                remaining = len(self.failed_requests_list) - 10
+                logger.warning(f"   ... and {remaining} more failed requests")
+            
+            logger.warning("")
+            logger.warning("💡 TIP: Check 'Scraping_Errors' sheet in Google Sheets for full details")
+        else:
+            logger.info("")
+            logger.info("✅ No failed requests - all retries successful!")
+        
+        logger.info("="*70)
 
 
 def scrape_emmamason_algolia(config: dict, error_logger=None) -> List[Dict]:
     """Main function для v5.1"""
-    scraper = EmmaMasonAlgoliaScraperV5_1(config, error_logger)
+    scraper = EmmaMasonAlgoliaScraper(config, error_logger)
     return scraper.scrape_all_brands()
 
 
-# if __name__ == "__main__":
-#     import logging
-#     logging.basicConfig(
-#         level=logging.INFO,
-#         format='%(asctime)s | %(levelname)-8s | %(message)s',
-#         datefmt='%H:%M:%S'
-#     )
-    
-#     config = {
-#         'delay_min': 0.5,
-#         'delay_max': 1.5,
-#         'retry_attempts': 3,
-#         'timeout': 30,
-#         'hits_per_page': 1000
-#     }
-    
-#     print("\n" + "="*60)
-#     print("ТЕСТ ALGOLIA SCRAPER v5.1 (Smart Pagination)")
-#     print("="*60 + "\n")
-    
-#     results = scrape_emmamason_algolia(config)
-    
-#     print(f"\n✅ РЕЗУЛЬТАТ: {len(results)} products")
+if __name__ == "__main__":
+    pass

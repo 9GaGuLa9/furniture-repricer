@@ -1,16 +1,15 @@
 """
-COMPETITORS MATCHED TRACKING - Варіант 2 + URL
+COMPETITORS MATCHED TRACKING
 ===============================================
 
-Додає до Competitors sheet колонки для tracking matching:
+Adds columns to the Competitors sheet for tracking matching:
 - Matched: TRUE/FALSE
-- Matched With: Наш SKU
-- Matched With URL: URL нашого товару  
+- Matched With: Our SKU
+- Matched With URL: URL of our product  
 - Used In Pricing: TRUE/FALSE
 
-Формат: Boolean (TRUE/FALSE)
-Оновлення: Кожен run (fresh data)
-Статистика: Мінімальна (тільки цифри)
+Format: Boolean (TRUE/FALSE)
+Update: Every run
 """
 
 from typing import Dict, List
@@ -53,17 +52,17 @@ class CompetitorsMatchedTracker:
         
         # Track or update
         if competitor_sku in self.tracking[source]:
-            # ✅ ВАЖЛИВО: used=True має пріоритет!
-            # Якщо вже позначено як used=True, не змінювати на False
+
+            # If already marked as used=True, do not change to False
             existing = self.tracking[source][competitor_sku]
             
             if used:
-                # Якщо новий виклик з used=True → завжди оновлюємо
+                # If a new call with used=True → always update
                 existing['used'] = True
                 existing['matched_with'] = our_sku
                 existing['matched_with_url'] = our_url
             else:
-                # Якщо новий виклик з used=False → оновлюємо тільки якщо ще не used
+                # If a new call with used=False → update only if not already used
                 if not existing['used']:
                     existing['matched_with'] = our_sku
                     existing['matched_with_url'] = our_url
@@ -89,8 +88,7 @@ class CompetitorsMatchedTracker:
         
         Args:
             total_counts: {'coleman': 1500, 'onestopbedrooms': 800, ...}
-        
-        Returns:
+                Returns:
             {
                 'coleman': {'total': 1500, 'matched': 450, 'used': 150},
                 ...

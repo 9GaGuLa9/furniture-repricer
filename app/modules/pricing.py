@@ -1,6 +1,5 @@
 """
-Pricing Engine для Furniture Repricer
-FINAL VERSION with correct logic
+Pricing Engine for Furniture Repricer
 """
 
 from typing import Dict, List, Optional, Tuple
@@ -9,7 +8,7 @@ import logging
 logger = logging.getLogger("pricing")
 
 class PricingEngine:
-    """Движок для розрахунку цін"""
+    """calculating prices"""
     
     def __init__(self, coefficients: Dict[str, float] = None):
         self.coefficients = coefficients or {
@@ -19,30 +18,30 @@ class PricingEngine:
         }
     
     def calculate_floor_price(self, cost: float) -> float:
-        """Мінімальна ціна = cost × floor_coef"""
+        """Min price = cost × floor_coef"""
         floor_coef = self.coefficients.get('floor', 1.5)
         return cost * floor_coef
     
     def calculate_max_price(self, cost: float) -> float:
-        """Максимальна ціна = cost × max_coef"""
+        """Max price = cost × max_coef"""
         max_coef = self.coefficients.get('max', 2.0)
         return cost * max_coef
     
     def get_lowest_competitor_price(self, competitor_prices: List[float]) -> Optional[float]:
-        """Знайти найнижчу ціну серед конкурентів"""
+        """Find the lowest price among competitors"""
         valid_prices = [p for p in competitor_prices if p and p > 0]
         if not valid_prices:
             return None
         return min(valid_prices)
     
     def calculate_suggested_price(self, cost: float, competitor_prices: List[float],
-                                 current_price: Optional[float] = None) -> Tuple[float, Dict]:
+                                    current_price: Optional[float] = None) -> Tuple[float, Dict]:
         """
-        Розрахувати рекомендовану ціну
+        Calculate the recommended price
         
-        Логіка:
-        - Є конкуренти → min(competitors) - $1.00 (з урахуванням floor/max)
-        - Немає конкурентів → залишити Our Sales Price БЕЗ ЗМІН
+        Logic:
+            - There are competitors → min(competitors) - $1.00 (taking into account floor/max)
+            - There are no competitors → leave Our Sales Price UNCHANGED
         """
         
         metadata = {
@@ -63,14 +62,12 @@ class PricingEngine:
         lowest_competitor = self.get_lowest_competitor_price(competitor_prices)
         metadata['lowest_competitor'] = lowest_competitor
         
-        # ===================================================================
-        # ВИПАДОК 1: Є КОНКУРЕНТИ
-        # ===================================================================
+        # CASE 1: THERE ARE COMPETITORS
         if lowest_competitor is not None:
             below_amount = self.coefficients.get('below_lowest', 1.0)
             suggested_raw = lowest_competitor - below_amount
             
-            # Застосувати floor/max межі
+            # Apply floor/max limits
             if suggested_raw < floor_price:
                 suggested = floor_price
                 metadata['calculation_method'] = 'competitor_capped_at_floor'
@@ -83,23 +80,21 @@ class PricingEngine:
                 suggested = suggested_raw
                 metadata['calculation_method'] = 'competitor_based'
             
-            # ✅ Округлити до 2 знаків після коми
+            # Round to 2 decimal places
             suggested = round(suggested, 2)
         
-        # ===================================================================
-        # ВИПАДОК 2: НЕМАЄ КОНКУРЕНТІВ
-        # ===================================================================
+        # CASE 2: NO COMPETITORS
         else:
-            # ✅ ЗАЛИШИТИ Our Sales Price БЕЗ ЗМІН
+            # LEAVE Our Sales Price UNCHANGED
             if current_price and current_price > 0:
                 suggested = current_price
                 metadata['calculation_method'] = 'no_competitors_keep_current'
             else:
-                # Якщо Our Sales Price відсутня або 0 → використати floor
+                # If Our Sales Price is missing or 0 → use floor
                 suggested = round(floor_price, 2)
                 metadata['calculation_method'] = 'no_competitors_use_floor'
         
-        # Розрахувати зміну ціни (якщо є current_price)
+        # Calculate the price change (if current_price is available)
         if current_price and current_price > 0:
             change = suggested - current_price
             change_percent = (change / current_price * 100) if current_price > 0 else 0
@@ -111,20 +106,20 @@ class PricingEngine:
 
 
 class BatchPricingProcessor:
-    """Процесор для пакетного розрахунку цін"""
+    """Processor for batch price calculation"""
     
     def __init__(self, engine: PricingEngine):
         self.engine = engine
     
     def _safe_float(self, value, field_name: str = "value") -> float:
-        '''Проста конвертація - всі значення з Sheets вже float!'''
+        '''Simple conversion - all values from Sheets are already floats'''
         if value is None:
             return 0.0
         
         if isinstance(value, (int, float)):
-            return float(value)  # Вже число - просто повернути
+            return float(value)  # It's just a matter of time - just turn it back
         
-        # Якщо чомусь string (з scrapers)
+        # If for some reason string (from scrapers)
         if isinstance(value, str):
             cleaned = value.strip().replace(',', '.').replace(' ', '')
             try:
@@ -137,26 +132,25 @@ class BatchPricingProcessor:
 
     def process_products(self, products: List[Dict]) -> List[Dict]:
         """
-        Обробити список товарів
+        Process the list of goods
         
-        Для кожного товару:
-        1. Отримати cost, current_price (Our Sales Price), competitor prices
-        2. Розрахувати suggested price
-        3. Додати metadata
+        For each product:
+            1. Obtain cost, current_price (Our Sales Price), competitor prices
+            2. Calculate suggested price
+            3. Add metadata
         """
         results = []
         error_count = 0
         
         for idx, product in enumerate(products):
             try:
-                # ✅ Отримати вартість (Our Cost)
+                # Get the cost (Our Cost)
                 cost = self._safe_float(
                     product.get('Our Cost') or product.get('cost') or product.get('Cost'),
                     'cost'
                 )
                 
-                # ✅ Отримати поточну ціну (Our Sales Price)
-                # Може бути з скрапера (our_current_price) або з таблиці
+                # Get the current price (Our Sales Price)
                 current_price = self._safe_float(
                     product.get('our_current_price') or 
                     product.get('current_price') or 
@@ -164,16 +158,16 @@ class BatchPricingProcessor:
                     'current_price'
                 )
                 
-                # ✅ Зібрати ціни конкурентів
+                # Collect competitors' prices
                 competitor_prices = []
-                for i in range(1, 4):
+                for i in range(1, 6): 
                     price = product.get(f'site{i}_price')
                     if price:
                         price_float = self._safe_float(price, f'site{i}_price')
                         if price_float > 0:
                             competitor_prices.append(price_float)
                 
-                # ✅ Розрахувати рекомендовану ціну
+                # Calculate the recommended price
                 suggested, metadata = self.engine.calculate_suggested_price(
                     cost, 
                     competitor_prices,
@@ -201,7 +195,7 @@ class BatchPricingProcessor:
         total = len(products)
         with_suggestions = [p for p in products if p.get('suggested_price')]
         
-        # Безпечний розрахунок середніх
+        # Safe calculation of averages
         costs = []
         suggestions = []
         

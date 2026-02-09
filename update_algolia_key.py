@@ -43,20 +43,20 @@ def validate_api_key(key):
     if ' ' in key:
         return False, "Key contains spaces"
     
-    # Base64 check (приблизно)
+    # Base64 check
     if not re.match(r'^[A-Za-z0-9+/=]+$', key):
         return False, "Key contains invalid characters (not base64)"
     
     return True, "OK"
 
 def find_scraper_file():
-    """Знайти файл emmamason_algolia_v5_1.py"""
+    """Find the file emmamason_algolia.py"""
     
-    # Спробувати різні можливі шляхи
+    # Try different possible paths
     possible_paths = [
-        Path("app/scrapers/emmamason_algolia_v5_1.py"),
-        Path("scrapers/emmamason_algolia_v5_1.py"),
-        Path("emmamason_algolia_v5_1.py"),
+        Path("app/scrapers/emmamason_algolia.py"),
+        Path("scrapers/emmamason_algolia.py"),
+        Path("emmamason_algolia.py"),
     ]
     
     for path in possible_paths:
@@ -66,7 +66,7 @@ def find_scraper_file():
     return None
 
 def update_api_key(file_path, new_key):
-    """Оновити API ключ у файлі"""
+    """Update the API key in the file"""
     
     print_info(f"Reading {file_path}...")
     
@@ -88,7 +88,7 @@ def update_api_key(file_path, new_key):
     except Exception as e:
         return False, f"Failed to create backup: {e}"
     
-    # Replace key - знайти активну строку (без # коментаря)
+    # Replace key - find the active string (without # comment)
     pattern = r'(^\s*ALGOLIA_API_KEY\s*=\s*)"([^"]+)"'
     
     def replace_key(match):
@@ -117,7 +117,7 @@ def update_api_key(file_path, new_key):
     return True, "OK"
 
 def test_new_key(file_path):
-    """Швидкий тест що ключ працює"""
+    """Quick test to see if the key works"""
     
     print_info("Testing new key...")
     
@@ -136,7 +136,7 @@ def test_new_key(file_path):
             'timeout': 10
         }
         
-        scraper = module.EmmaMasonAlgoliaScraperV5_1(config)
+        scraper = module.EmmaMasonAlgoliaScraper(config)
         
         # Build test params
         params = scraper._build_params([("brand", "ACME")], page=0, hits=1)
@@ -145,7 +145,7 @@ def test_new_key(file_path):
         result = scraper._fetch_algolia(params)
         
         if result:
-            print_success("API key is VALID! ✅")
+            print_success("API key is VALID! [OK]")
             return True
         else:
             print_warning("API key test returned None (might be expired)")
@@ -193,11 +193,11 @@ def main():
     file_path = find_scraper_file()
     
     if not file_path:
-        print_error("Could not find emmamason_algolia_v5_1.py")
+        print_error("Could not find emmamason_algolia.py")
         print("\nSearched in:")
-        print("  - app/scrapers/emmamason_algolia_v5_1.py")
-        print("  - scrapers/emmamason_algolia_v5_1.py")
-        print("  - emmamason_algolia_v5_1.py")
+        print("  - app/scrapers/emmamason_algolia.py")
+        print("  - scrapers/emmamason_algolia.py")
+        print("  - emmamason_algolia.py")
         print("\nMake sure you run this from project root directory")
         sys.exit(1)
     
@@ -220,7 +220,7 @@ def main():
     
     # Summary
     print(f"\n{GREEN}{'='*60}{RESET}")
-    print(f"{GREEN}✅ API KEY UPDATED SUCCESSFULLY{RESET}")
+    print(f"{GREEN}[OK] API KEY UPDATED SUCCESSFULLY{RESET}")
     print(f"{GREEN}{'='*60}{RESET}\n")
     
     print("Next steps:")

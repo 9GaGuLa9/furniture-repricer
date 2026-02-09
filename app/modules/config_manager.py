@@ -1,9 +1,9 @@
 """
-ConfigManager - Merge YAML defaults з Google Sheets overrides
+ConfigManager - Merge YAML defaults from Google Sheets overrides
 
-YAML = незмінні defaults
-Google Sheets = зміни клієнта (overrides)
-Merged config = використовується в runtime
+YAML = unchangeable defaults
+Google Sheets = customer changes (overrides)
+Merged config = used in runtime
 """
 
 import yaml
@@ -17,7 +17,7 @@ logger = get_logger("config_manager")
 
 class ConfigManager:
     """
-    Управління конфігурацією з merge logic
+    Configuration management with merge logic
     
     Priority: Google Sheets > YAML defaults > Hardcoded defaults
     """
@@ -25,7 +25,7 @@ class ConfigManager:
     def __init__(self, yaml_path: str, sheets_reader: GoogleSheetsConfigReader):
         """
         Args:
-            yaml_path: Шлях до config.yaml
+            yaml_path: Path to config.yaml
             sheets_reader: GoogleSheetsConfigReader instance
         """
         self.yaml_path = Path(yaml_path)
@@ -38,10 +38,10 @@ class ConfigManager:
     
     def get_config(self, force_reload: bool = False) -> Dict[str, Any]:
         """
-        Отримати merged конфігурацію
+        Get merged configuration
         
         Args:
-            force_reload: Примусово перезавантажити (ігнорувати cache)
+            force_reload: Force reload (ignore cache)
         
         Returns:
             Merged config dictionary
@@ -53,19 +53,19 @@ class ConfigManager:
     
     def get_price_rules(self, force_reload: bool = False) -> Dict[str, float]:
         """
-        Отримати price rules
+        Get price rules
         
         Args:
-            force_reload: Примусово перезавантажити
+            force_reload: Force restart
         
         Returns:
             Price rules dictionary
         """
         if self._price_rules is None or force_reload:
-            # Спробувати з Google Sheets
+            # Try with Google Sheets
             sheets_rules = self.sheets_reader.read_price_rules()
             
-            # Fallback на YAML якщо Google Sheets порожній
+            # Fallback to YAML if Google Sheets is empty
             if not sheets_rules or all(v == 0 for v in sheets_rules.values()):
                 self.logger.warning("Price_rules empty in Google Sheets, using YAML defaults")
                 yaml_config = self._load_yaml_config()
@@ -77,7 +77,7 @@ class ConfigManager:
     
     def _merge_configs(self) -> Dict[str, Any]:
         """
-        Merge конфігурацій з правильним пріоритетом
+        Merge configurations with the correct priority
         
         Returns:
             Merged config
@@ -88,7 +88,7 @@ class ConfigManager:
         
         # 1. Hardcoded defaults (найнижчий пріоритет)
         config = self._get_hardcoded_defaults()
-        self.logger.info("✓ Loaded hardcoded defaults")
+        self.logger.info("[OK] Loaded hardcoded defaults")
         
         # 2. YAML config (середній пріоритет)
         try:
@@ -96,10 +96,10 @@ class ConfigManager:
             
             # Merge з YAML
             for key, value in yaml_config.items():
-                if key != 'price_rules':  # Price rules окремо
+                if key != 'price_rules':  # Price rules separately
                     config[key] = value
             
-            self.logger.info(f"✓ Loaded YAML config from {self.yaml_path}")
+            self.logger.info(f"[OK] Loaded YAML config from {self.yaml_path}")
             
         except FileNotFoundError:
             self.logger.warning(f"YAML config not found: {self.yaml_path}")
@@ -109,18 +109,18 @@ class ConfigManager:
             self.logger.error(f"Failed to load YAML: {e}")
             self.logger.warning("Using hardcoded defaults only")
         
-        # 3. Google Sheets overrides (найвищий пріоритет)
+        # 3. Google Sheets overrides (highest priority)
         try:
             sheets_config = self.sheets_reader.read_config()
             
-            # Знайти які параметри змінив клієнт
+            # Find which parameters the client has changed
             overrides = []
             new_params = []
             
             for key, value in sheets_config.items():
                 if key in config:
                     if config[key] != value:
-                        overrides.append(f"  {key}: {config[key]} → {value}")
+                        overrides.append(f"  {key}: {config[key]} -> {value}")
                         config[key] = value
                 else:
                     new_params.append(f"  {key}: {value}")
@@ -128,17 +128,17 @@ class ConfigManager:
             
             # Лог змін
             if overrides:
-                self.logger.info("✓ Client OVERRIDES from Google Sheets:")
+                self.logger.info("[OK] Client OVERRIDES from Google Sheets:")
                 for override in overrides:
                     self.logger.info(override)
             
             if new_params:
-                self.logger.info("✓ Client NEW parameters from Google Sheets:")
+                self.logger.info("[OK] Client NEW parameters from Google Sheets:")
                 for param in new_params:
                     self.logger.info(param)
             
             if not overrides and not new_params:
-                self.logger.info("✓ No overrides from Google Sheets (using YAML/defaults)")
+                self.logger.info("[OK] No overrides from Google Sheets (using YAML/defaults)")
             
         except Exception as e:
             self.logger.error(f"Failed to load Google Sheets config: {e}")
@@ -150,7 +150,7 @@ class ConfigManager:
     
     def _load_yaml_config(self) -> Dict[str, Any]:
         """
-        Завантажити YAML конфігурацію
+        Download YAML configuration
         
         Returns:
             YAML config dictionary
@@ -178,6 +178,8 @@ class ConfigManager:
             'scraper_coleman': True,
             'scraper_onestopbedrooms': True,
             'scraper_afastores': True,
+            'site4_enabled': False,
+            'site5_enabled': False,
             
             # === SCRAPING LIMITS ===
             'max_products_emmamason': 15000,
@@ -234,37 +236,37 @@ class ConfigManager:
     
     def is_enabled(self, feature: str) -> bool:
         """
-        Перевірити чи увімкнена feature
+        Check if the feature is enabled
         
         Args:
-            feature: Назва feature (напр. 'scraper_emmamason', 'enable_price_history')
+            feature: Name feature (напр. 'scraper_emmamason', 'enable_price_history')
         
         Returns:
-            True якщо увімкнена
+            True if enabled
         """
         config = self.get_config()
         return config.get(feature, False)
     
     def get_value(self, key: str, default: Any = None) -> Any:
         """
-        Отримати значення параметру
+        Get parameter value
         
         Args:
-            key: Назва параметру
-            default: Default значення якщо не знайдено
+            key: Parameter name
+            default: Default value if not found
         
         Returns:
-            Значення параметру
+            Parameter value
         """
         config = self.get_config()
         return config.get(key, default)
     
     def get_scraper_config(self, scraper_name: str) -> Dict[str, Any]:
         """
-        Отримати конфігурацію для конкретного scraper
+        Get configuration for a specific scraper
         
         Args:
-            scraper_name: Назва (emmamason, coleman, onestopbedrooms, afastores)
+            scraper_name: Name (emmamason, coleman, onestopbedrooms, afastores)
         
         Returns:
             Scraper config
@@ -289,15 +291,15 @@ class ConfigManager:
     
     def validate(self) -> List[str]:
         """
-        Валідація конфігурації
+        Configuration validation
         
         Returns:
-            Список помилок (порожній якщо OK)
+            List of errors (empty if OK)
         """
         errors = []
         config = self.get_config()
         
-        # Перевірка числових діапазонів
+        # Checking numerical ranges
         validations = [
             ('max_products_emmamason', 100, 50000),
             ('max_products_per_competitor', 50, 50000),
@@ -317,7 +319,7 @@ class ConfigManager:
                 if not (min_val <= value <= max_val):
                     errors.append(f"{param} must be between {min_val} and {max_val}, got {value}")
         
-        # Логічні перевірки
+        # Logical checks
         if config.get('min_price_change_percent', 0) > config.get('max_price_change_percent', 100):
             errors.append("min_price_change_percent cannot be > max_price_change_percent")
         
@@ -338,7 +340,7 @@ class ConfigManager:
         return errors
     
     def print_summary(self):
-        """Вивести summary конфігурації"""
+        """Display configuration summary"""
         config = self.get_config()
         rules = self.get_price_rules()
         
@@ -358,7 +360,7 @@ class ConfigManager:
         self.logger.info("SCRAPERS:")
         for scraper in ['emmamason', 'coleman', 'onestopbedrooms', 'afastores']:
             enabled = config.get(f'scraper_{scraper}', True)
-            status = "✓ ENABLED" if enabled else "✗ DISABLED"
+            status = "[ENABLED]" if enabled else "[DISABLED]"
             self.logger.info(f"  {scraper:20s}: {status}")
         
         # Limits
@@ -380,9 +382,9 @@ class ConfigManager:
         # Updates
         self.logger.info("")
         self.logger.info("UPDATES:")
-        self.logger.info(f"  Price updates:   {'✓' if config.get('enable_price_updates') else '✗'}")
-        self.logger.info(f"  Price history:   {'✓' if config.get('enable_price_history') else '✗'}")
-        self.logger.info(f"  Competitors:     {'✓' if config.get('enable_competitors_sheet') else '✗'}")
+        self.logger.info(f"  Price updates:   {'[OK]' if config.get('enable_price_updates') else '✗'}")
+        self.logger.info(f"  Price history:   {'[OK]' if config.get('enable_price_history') else '✗'}")
+        self.logger.info(f"  Competitors:     {'[OK]' if config.get('enable_competitors_sheet') else '✗'}")
         
         # Performance
         self.logger.info("")
@@ -395,12 +397,12 @@ class ConfigManager:
             self.logger.info("")
             self.logger.info("NOTIFICATIONS:")
             errors_only = " (errors only)" if config.get('telegram_on_errors_only') else ""
-            self.logger.info(f"  Telegram:        ✓ ENABLED{errors_only}")
+            self.logger.info(f"  Telegram:        [ENABLED]{errors_only}")
         
         self.logger.info("="*60)
     
     def reload(self):
-        """Перезавантажити конфігурацію (якщо змінилась Google Sheets)"""
+        """Reload configuration (if Google Sheets has changed)"""
         self._merged_config = None
         self._price_rules = None
         self.logger.info("Configuration reloaded")

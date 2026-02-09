@@ -1,6 +1,6 @@
 """
-Logger Module для Furniture Repricer
-FIXED VERSION v2.0 - з підтримкою log_level parameter
+Logger Module for Furniture Repricer
+with log_level parameter support
 """
 
 import logging
@@ -11,22 +11,22 @@ from datetime import datetime
 
 def get_logger(name: str = "repricer", log_to_file: bool = True) -> logging.Logger:
     """
-    Отримати logger з певною назвою
+    Get a logger with a specific name
     
     Args:
-        name: Назва логгера
-        log_to_file: Чи писати в файл (default: True)
+        name: Logger name
+        log_to_file: Whether to write to file (default: True)
     
     Returns:
         Logger instance
     """
     logger = logging.getLogger(name)
     
-    # Налаштувати тільки якщо ще не налаштовано
+    # Configure only if not already configured
     if not logger.handlers:
-        logger.setLevel(logging.DEBUG)  # Logger сам приймає все
+        logger.setLevel(logging.DEBUG) 
         
-        # Formatter (один для всіх handlers)
+        # Formatter (one for all handlers)
         formatter = logging.Formatter(
             '%(asctime)s | %(name)-12s | %(levelname)-8s | %(message)s',
             datefmt='%H:%M:%S'
@@ -34,7 +34,7 @@ def get_logger(name: str = "repricer", log_to_file: bool = True) -> logging.Logg
         
         # Console handler
         console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)  # За замовчуванням INFO
+        console_handler.setLevel(logging.INFO)  # Default INFO
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
         
@@ -67,33 +67,32 @@ def setup_logging(
     log_dir: str = 'logs',
     log_format: str = None,
     date_format: str = None,
-    level: str = 'INFO'  # ✅ НОВИЙ ПАРАМЕТР!
+    level: str = 'INFO'
 ) -> logging.Logger:
     """
-    Налаштувати головний logger
-    
-    ✅ FIXED v2.0: Підтримка log_level parameter!
+    Configure the main logger
+    Support for log_level parameter
     
     Args:
-        log_dir: Директорія для логів
-        log_format: Формат логування
-        date_format: Формат дати
-        level: Рівень логування ('DEBUG', 'INFO', 'WARNING', 'ERROR')
+        log_dir: Directory for logs
+        log_format: Logging format
+        date_format: Date format
+        level: Logging level (‘DEBUG’, ‘INFO’, ‘WARNING’, ‘ERROR’)
     
     Returns:
         Logger instance
     """
-    # Конвертувати string level в logging constant
+    # Convert string level to logging constant
     numeric_level = getattr(logging, level.upper(), logging.INFO)
     
-    # Створити logger
+    # Create a logger
     logger = logging.getLogger("repricer")
-    logger.setLevel(logging.DEBUG)  # Logger сам приймає все
+    logger.setLevel(logging.DEBUG)
     
-    # Видалити існуючі handlers якщо є
+    # Remove existing handlers if any
     logger.handlers.clear()
     
-    # Формат
+    # Format
     if not log_format:
         log_format = '%(asctime)s | %(name)-12s | %(levelname)-8s | %(message)s'
     if not date_format:
@@ -101,17 +100,13 @@ def setup_logging(
     
     formatter = logging.Formatter(log_format, datefmt=date_format)
     
-    # ═══════════════════════════════════════════════════════════════
-    # Console handler з вказаним level
-    # ═══════════════════════════════════════════════════════════════
+    # Console handler with the specified level
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(numeric_level)  # ✅ Використати parameter!
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
-    
-    # ═══════════════════════════════════════════════════════════════
-    # File handler (завжди DEBUG)
-    # ═══════════════════════════════════════════════════════════════
+
+    # File handler (always DEBUG)
     try:
         log_path = Path(log_dir)
         log_path.mkdir(exist_ok=True)
@@ -137,7 +132,7 @@ def setup_logging(
 
 
 class LogBlock:
-    """Контекстний менеджер для логування блоків коду"""
+    """Context manager for logging code blocks"""
     
     def __init__(self, name: str, logger: logging.Logger = None):
         self.name = name
@@ -161,7 +156,7 @@ class LogBlock:
 
 
 if __name__ == "__main__":
-    # Показати де файл
+    # Show where the file is located
     log_dir = Path(__file__).parent.parent.parent / "logs"
     log_file = log_dir / f"repricer_{datetime.now().strftime('%Y-%m-%d')}.log"
     

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Scheduler Daemon для Furniture Repricer
-Entry point для запуску scheduler як background service
+Scheduler Daemon for Furniture Repricer
+Entry point for running scheduler as background service
 """
 
 import sys
@@ -21,15 +21,21 @@ from app.modules.google_sheets import GoogleSheetsClient
 import yaml
 
 
-# Global scheduler instance для signal handling
+# Global scheduler instance for signal handling
 scheduler_instance = None
+# Global logger for signal handling
+daemon_logger = None
 
 
 def signal_handler(signum, frame):
     """Handle graceful shutdown on SIGTERM/SIGINT"""
-    global scheduler_instance
+    global scheduler_instance, daemon_logger
     
-    logger.info(f"\nReceived signal {signum}, shutting down gracefully...")
+    # Use daemon_logger if available, otherwise print
+    if daemon_logger:
+        daemon_logger.info(f"\nReceived signal {signum}, shutting down gracefully...")
+    else:
+        print(f"\nReceived signal {signum}, shutting down gracefully...")
     
     if scheduler_instance:
         scheduler_instance.stop()
@@ -38,15 +44,17 @@ def signal_handler(signum, frame):
 
 
 def setup_logging():
-    """Setup logging для daemon"""
+    """Setup logging for daemon"""
+    global daemon_logger
+    
     # Create logs directory
     log_dir = project_root / "logs"
     log_dir.mkdir(exist_ok=True)
     
-    # Log file з датою
+    # Log file with date
     log_file = log_dir / f"scheduler_{datetime.now().strftime('%Y-%m-%d')}.log"
     
-    # Setup logging
+    # Setup logging with UTF-8 encoding and error handling for emoji
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s | %(name)-15s | %(levelname)-8s | %(message)s',
@@ -57,15 +65,26 @@ def setup_logging():
         ]
     )
     
-    return logging.getLogger("scheduler_daemon")
+    # Configure StreamHandler to handle emoji gracefully on Windows
+    for handler in logging.root.handlers:
+        if isinstance(handler, logging.StreamHandler):
+            # Use 'replace' error handling to avoid UnicodeEncodeError
+            if hasattr(handler.stream, 'reconfigure'):
+                try:
+                    handler.stream.reconfigure(encoding='utf-8', errors='replace')
+                except Exception:
+                    pass
+    
+    daemon_logger = logging.getLogger("scheduler_daemon")
+    return daemon_logger
 
 
 def load_config(config_path: str = "config.yaml"):
     """
-    Завантажити конфігурацію (YAML + Google Sheets)
+    Load configuration (YAML + Google Sheets)
     
     Args:
-        config_path: Шлях до config.yaml
+        config_path: Path to config.yaml
     
     Returns:
         Merged config dictionary
@@ -89,7 +108,7 @@ def load_config(config_path: str = "config.yaml"):
             base_config['main_sheet']['id']
         )
         
-        # 4. ConfigManager з merge
+        # 4. ConfigManager with merge
         config_manager = ConfigManager(
             yaml_path=config_path,
             sheets_reader=config_reader
@@ -98,7 +117,7 @@ def load_config(config_path: str = "config.yaml"):
         # 5. Get merged config
         config = config_manager.get_config()
         
-        logger.info("✓ Configuration loaded (YAML + Google Sheets)")
+        logger.info("Configuration loaded (YAML + Google Sheets)")
         
         return config
     
@@ -106,7 +125,7 @@ def load_config(config_path: str = "config.yaml"):
         logger.error(f"Failed to load config: {e}", exc_info=True)
         logger.warning("Using basic YAML config only")
         
-        # Fallback на просто YAML
+        # Fallback to simple YAML
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 return yaml.safe_load(f)
@@ -117,16 +136,16 @@ def load_config(config_path: str = "config.yaml"):
 
 def main():
     """Main entry point"""
-    global scheduler_instance
+    global scheduler_instance, daemon_logger
     
     # Setup logging
-    logger = setup_logging()
+    daemon_logger = setup_logging()
     
-    logger.info("="*60)
-    logger.info("FURNITURE REPRICER SCHEDULER DAEMON")
-    logger.info("="*60)
+    daemon_logger.info("="*60)
+    daemon_logger.info("FURNITURE REPRICER SCHEDULER DAEMON")
+    daemon_logger.info("="*60)
     
-    # Setup signal handlers для graceful shutdown
+    # Setup signal handlers for graceful shutdown
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
     
@@ -136,33 +155,33 @@ def main():
         
         # Check if scheduler enabled
         if not config.get('schedule_enabled', False):
-            logger.error("Scheduler is DISABLED in config!")
-            logger.error("Set schedule_enabled = TRUE in Config sheet or config.yaml")
+            daemon_logger.error("Scheduler is DISABLED in config!")
+            daemon_logger.error("Set schedule_enabled = TRUE in Config sheet or config.yaml")
             sys.exit(1)
         
         # Create scheduler
         scheduler_instance = create_scheduler_from_config(config)
         
         if not scheduler_instance:
-            logger.error("Failed to create scheduler!")
+            daemon_logger.error("Failed to create scheduler!")
             sys.exit(1)
         
         # Run forever
-        logger.info("\n" + "="*60)
-        logger.info("Starting scheduler daemon...")
-        logger.info("="*60 + "\n")
+        daemon_logger.info("\n" + "="*60)
+        daemon_logger.info("Starting scheduler daemon...")
+        daemon_logger.info("="*60 + "\n")
         
         scheduler_instance.run_forever()
     
     except KeyboardInterrupt:
-        logger.info("\n✓ Scheduler stopped by user (Ctrl+C)")
+        daemon_logger.info("\nScheduler stopped by user (Ctrl+C)")
     
     except Exception as e:
-        logger.error(f"Scheduler daemon failed: {e}", exc_info=True)
+        daemon_logger.error(f"Scheduler daemon failed: {e}", exc_info=True)
         sys.exit(1)
     
     finally:
-        logger.info("Scheduler daemon shutdown complete")
+        daemon_logger.info("Scheduler daemon shutdown complete")
 
 
 if __name__ == "__main__":

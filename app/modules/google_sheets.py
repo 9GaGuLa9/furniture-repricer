@@ -1,11 +1,5 @@
 """
-Google Sheets API клієнт для Furniture Repricer
-FINAL VERSION v3.0 - FIXED ALL ISSUES:
-✅ URL normalization for Emma Mason matching
-✅ Price conversion for competitor data  
-✅ Competitors sheet - FIXED structure (SKU in column A)
-✅ Price_History - FIXED structure (Date, SKU, URL, Old Price, New Price, Change)
-✅ TRUE batch operations (no loops!)
+Google Sheets API client for Furniture Repricer
 """
 
 import gspread
@@ -23,12 +17,7 @@ logger = get_logger("google_sheets")
 
 def normalize_url(url: str) -> str:
     """
-    Нормалізувати URL для порівняння
-    
-    Приклади:
-    - https://emmamason.com/product-name/ → emmamason.com/product-name
-    - https://emmamason.com/product-name?param=1 → emmamason.com/product-name
-    - HTTPS://EMMAMASON.COM/Product-Name → emmamason.com/product-name
+    Normalize URLs for comparison
     """
     if not url:
         return ""
@@ -37,15 +26,15 @@ def normalize_url(url: str) -> str:
         # Parse URL
         parsed = urlparse(url.strip())
         
-        # Взяти domain + path (без scheme, params, fragment)
+        # Take domain + path (without schema, parameters, fragment)
         # netloc = domain, path = /product-name
         domain = parsed.netloc.lower()
         path = parsed.path.lower()
         
-        # Видалити trailing slash
+        # Remove trailing slash
         path = path.rstrip('/')
         
-        # Повернути domain/path
+        # Return domain/path
         normalized = f"{domain}{path}"
         
         return normalized
@@ -56,9 +45,9 @@ def normalize_url(url: str) -> str:
 
 
 class GoogleSheetsClient:
-    """Клієнт для роботи з Google Sheets"""
+    """Client for working with Google Sheets"""
     
-    # Scopes для доступу
+    # Scopes for access
     SCOPES = [
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/drive'
@@ -66,17 +55,17 @@ class GoogleSheetsClient:
     
     def __init__(self, credentials_path: str):
         """
-        Ініціалізація клієнта
+        Client initialization
         
         Args:
-            credentials_path: Шлях до JSON файлу з credentials
+            credentials_path: Path to the JSON file with credentials
         """
         self.credentials_path = Path(credentials_path)
         self.client = None
         self._connect()
     
     def _connect(self):
-        """Підключитись до Google Sheets API"""
+        """Connect to Google Sheets API"""
         try:
             logger.info(f"Connecting to Google Sheets API...")
             
@@ -89,7 +78,7 @@ class GoogleSheetsClient:
             )
             
             self.client = gspread.authorize(credentials)
-            logger.info("✓ Connected to Google Sheets API")
+            logger.info("[OK] Connected to Google Sheets API")
             
         except Exception as e:
             logger.error(f"Failed to connect to Google Sheets: {e}")
@@ -97,15 +86,15 @@ class GoogleSheetsClient:
     
     def test_connection(self) -> bool:
         """
-        Перевірити підключення
+        Check the connection
         
         Returns:
-            True якщо підключення працює
+            True if the connection is working
         """
         try:
-            # Просто перевіряємо що можемо отримати список таблиць
+            # Just checking what we can get a list of tables
             self.client.openall()
-            logger.info("✓ Connection test passed")
+            logger.info("[OK] Connection test passed")
             return True
         except Exception as e:
             logger.error(f"Connection test failed: {e}")
@@ -113,11 +102,11 @@ class GoogleSheetsClient:
 
     def open_sheet(self, sheet_id: str, worksheet_name: str = None) -> gspread.Worksheet:
         """
-        Відкрити таблицю
+        Open table
         
         Args:
-            sheet_id: ID таблиці
-            worksheet_name: Назва аркушу (опціонально, якщо None - перший аркуш)
+            sheet_id: Table ID
+            worksheet_name: Sheet name (optional, if None - first sheet)
         
         Returns:
             Worksheet object
@@ -142,14 +131,14 @@ class GoogleSheetsClient:
     
     def read_all_data(self, sheet_id: str, worksheet_name: str = None) -> List[List[str]]:
         """
-        Прочитати всі дані з аркушу
+        Read all data from the sheet
         
         Args:
-            sheet_id: ID таблиці
-            worksheet_name: Назва аркушу
+            sheet_id: Table ID
+            worksheet_name: Worksheet name
         
         Returns:
-            Список рядків (кожен рядок - список значень)
+            List of strings (each string is a list of values)
         """
         try:
             worksheet = self.open_sheet(sheet_id, worksheet_name)
@@ -162,14 +151,14 @@ class GoogleSheetsClient:
     
     def read_as_dict(self, sheet_id: str, worksheet_name: str = None) -> List[Dict[str, str]]:
         """
-        Прочитати дані як список словників (header = keys)
+        Read data as a list of dictionaries (header = keys)
         
         Args:
-            sheet_id: ID таблиці
-            worksheet_name: Назва аркушу
+            sheet_id: Table ID
+            worksheet_name: Worksheet name
         
         Returns:
-            Список словників {header: value}
+            List of dictionaries {header: value}
         """
         try:
             worksheet = self.open_sheet(sheet_id, worksheet_name)
@@ -183,21 +172,21 @@ class GoogleSheetsClient:
     def write_row(self, sheet_id: str, row_number: int, values: List[Any], 
                     worksheet_name: str = None):
         """
-        Записати рядок у таблицю
+        Write a row to a table
         
         Args:
-            sheet_id: ID таблиці
-            row_number: Номер рядка (1-based)
-            values: Список значень
-            worksheet_name: Назва аркушу
+            sheet_id: Table ID
+            row_number: Row number (1-based)
+            values: List of values
+            worksheet_name: Worksheet name
         """
         try:
             worksheet = self.open_sheet(sheet_id, worksheet_name)
             
-            # Конвертувати значення у строки
+            # Convert values to strings
             values_str = [str(v) if v is not None else "" for v in values]
             
-            # Записати рядок
+            # write a line
             range_name = f"A{row_number}"
             worksheet.update(range_name, [values_str], value_input_option='USER_ENTERED')
             
@@ -210,14 +199,14 @@ class GoogleSheetsClient:
     def update_cell(self, sheet_id: str, row: int, col: int, value: Any,
                     worksheet_name: str = None):
         """
-        Оновити одну клітинку
+        Update one cell
         
         Args:
-            sheet_id: ID таблиці
-            row: Номер рядка (1-based)
-            col: Номер колонки (1-based)
-            value: Значення
-            worksheet_name: Назва аркушу
+            sheet_id: Table ID
+            row: Row number (1-based)
+            col: Column number (1-based)
+            value: Value
+            worksheet_name: Worksheet name
         """
         try:
             worksheet = self.open_sheet(sheet_id, worksheet_name)
@@ -230,13 +219,13 @@ class GoogleSheetsClient:
     def update_range(self, sheet_id: str, range_name: str, values: List[List[Any]],
                     worksheet_name: str = None):
         """
-        Оновити діапазон клітинок
+        Refresh cell range
         
         Args:
-            sheet_id: ID таблиці
-            range_name: Діапазон (напр. "A2:D10")
-            values: 2D список значень
-            worksheet_name: Назва аркушу
+            sheet_id: Table ID
+            range_name: Range (e.g., “A2:D10”)
+            values: 2D list of values
+            worksheet_name: Worksheet name
         """
         try:
             worksheet = self.open_sheet(sheet_id, worksheet_name)
@@ -248,17 +237,17 @@ class GoogleSheetsClient:
     
     def batch_update(self, sheet_id: str, updates: List[Dict], worksheet_name: str = None):
         """
-        Пакетне оновлення (ефективніше для багатьох змін)
+        Batch update (more efficient for many changes))
         
         Args:
-            sheet_id: ID таблиці
-            updates: Список словників {'range': 'A1:B2', 'values': [[1,2],[3,4]]}
-            worksheet_name: Назва аркушу
+            sheet_id: Table ID
+            updates: List of dictionaries {‘range’: ‘A1:B2’, ‘values’: [[1,2],[3,4]]}
+            worksheet_name: Worksheet name
         """
         try:
             worksheet = self.open_sheet(sheet_id, worksheet_name)
             
-            # Підготувати дані для batch update
+            # Prepare data for batch update
             data = []
             for update in updates:
                 data.append({
@@ -266,7 +255,7 @@ class GoogleSheetsClient:
                     'values': update['values']
                 })
             
-            # Виконати batch update
+            # Perform a batch update
             worksheet.batch_update(data, value_input_option='USER_ENTERED')
             logger.info(f"Batch updated {len(updates)} ranges")
             
@@ -276,12 +265,12 @@ class GoogleSheetsClient:
     
     def append_row(self, sheet_id: str, values: List[Any], worksheet_name: str = None):
         """
-        Додати новий рядок в кінець таблиці
+        Add a new row to the end of the table
         
         Args:
-            sheet_id: ID таблиці
-            values: Список значень
-            worksheet_name: Назва аркушу
+            sheet_id: Table ID
+            values: List of values
+            worksheet_name: Worksheet name
         """
         try:
             worksheet = self.open_sheet(sheet_id, worksheet_name)
@@ -295,24 +284,24 @@ class GoogleSheetsClient:
     def find_row_by_sku(self, sheet_id: str, sku: str, worksheet_name: str = None,
                         sku_column: int = 1) -> Optional[int]:
         """
-        Знайти номер рядка за SKU
+        Find the line number by SKU
         
         Args:
-            sheet_id: ID таблиці
-            sku: SKU для пошуку
-            worksheet_name: Назва аркушу
-            sku_column: Номер колонки з SKU (1-based)
+            sheet_id: Table ID
+            sku: SKU for search
+            worksheet_name: Worksheet name
+            sku_column: Column number with SKU (1-based)
         
         Returns:
-            Номер рядка або None
+            Row number or None
         """
         try:
             worksheet = self.open_sheet(sheet_id, worksheet_name)
             
-            # Отримати всі значення SKU колонки
+            # Get all SKU values from the column
             sku_values = worksheet.col_values(sku_column)
             
-            # Шукати SKU (case-insensitive)
+            # Search SKU (case-insensitive)
             sku_lower = sku.lower().strip()
             for i, cell_value in enumerate(sku_values, start=1):
                 if cell_value.lower().strip() == sku_lower:
@@ -329,15 +318,15 @@ class GoogleSheetsClient:
     def get_row_by_number(self, sheet_id: str, row_number: int, 
                         worksheet_name: str = None) -> List[str]:
         """
-        Отримати рядок за номером
+        Get a string by number
         
         Args:
-            sheet_id: ID таблиці
-            row_number: Номер рядка (1-based)
-            worksheet_name: Назва аркушу
+            sheet_id: Table ID
+            row_number: Row number (1-based)
+            worksheet_name: Worksheet name
         
         Returns:
-            Список значень рядка
+            List of string values
         """
         try:
             worksheet = self.open_sheet(sheet_id, worksheet_name)
@@ -350,13 +339,13 @@ class GoogleSheetsClient:
     def create_worksheet(self, sheet_id: str, title: str, rows: int = 1000, 
                         cols: int = 26) -> gspread.Worksheet:
         """
-        Створити новий аркуш у таблиці
+        Create a new sheet in the table
         
         Args:
-            sheet_id: ID таблиці
-            title: Назва нового аркушу
-            rows: Кількість рядків
-            cols: Кількість колонок
+            sheet_id: Table ID
+            title: Name of the new sheet
+            rows: Number of rows
+            cols: Number of columns
         
         Returns:
             Worksheet object
@@ -372,14 +361,14 @@ class GoogleSheetsClient:
     
     def worksheet_exists(self, sheet_id: str, worksheet_name: str) -> bool:
         """
-        Перевірити чи існує аркуш
+        Check if a sheet exists
         
         Args:
-            sheet_id: ID таблиці
-            worksheet_name: Назва аркушу
+            sheet_id: Table ID
+            worksheet_name: Sheet name
         
         Returns:
-            True якщо існує
+            True if it exists
         """
         try:
             spreadsheet = self.client.open_by_key(sheet_id)
@@ -391,103 +380,111 @@ class GoogleSheetsClient:
     
     def rate_limit_delay(self, delay: float = 1.0):
         """
-        Затримка для уникнення rate limit
+        delay to avoid rate limit
         
         Args:
-            delay: Час затримки в секундах
+            delay: Delay time in seconds
         """
         time.sleep(delay)
 
 
 class RepricerSheetsManager:
-    """Спеціалізований менеджер для таблиць репрайсера"""
+    """Specialized manager for repricer tables"""
     
     def __init__(self, client: GoogleSheetsClient, config: dict):
         """
-        Ініціалізація менеджера
+        Initialization of the manager
         
         Args:
             client: GoogleSheetsClient instance
-            config: Конфігурація таблиць
+            config: Table configuration
         """
         self.client = client
         self.config = config
         self.logger = get_logger("sheets_manager")
         
-        # Cache для row numbers (оптимізація rate limit)
+        # Cache for row numbers (rate limit optimization)
         self.row_cache = {}
 
-    def clear_filters(self, sheet_id: str, worksheet_name: str):
+    def reset_filters(self, sheet_id: str, worksheet_name: str):
         """
-        Зняти всі фільтри з аркуша
+        Reset all filters but KEEP the filter itself
         
         Args:
-            sheet_id: ID таблиці
-            worksheet_name: Назва аркушу
+            sheet_id: Table ID
+            worksheet_name: Sheet name
         """
         try:
-            # Отримати worksheet
             worksheet = self.client.open_sheet(sheet_id, worksheet_name)
-            
-            # Отримати worksheet ID (не те саме що sheet_id!)
             worksheet_id = worksheet._properties['sheetId']
             
-            # Підготувати запит для зняття фільтрів
+            # Get current filter range
+            all_data = worksheet.get_all_values()
+            if not all_data:
+                return
+            
+            num_rows = len(all_data)
+            num_cols = len(all_data[0]) if all_data else 0
+            
+            # Prepare request to RESET filter
+            # This sets filter but with no criteria (shows all data)
             requests = [{
-                'clearBasicFilter': {
-                    'sheetId': worksheet_id
+                'setBasicFilter': {
+                    'filter': {
+                        'range': {
+                            'sheetId': worksheet_id,
+                            'startRowIndex': 0,
+                            'endRowIndex': num_rows,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': num_cols
+                        },
+                    }
                 }
             }]
             
-            # Виконати batch update
             spreadsheet = self.client.client.open_by_key(sheet_id)
             spreadsheet.batch_update({'requests': requests})
             
-            logger.info(f"✓ Cleared filters on {worksheet_name}")
+            logger.info(f"[OK] Reset filters on {worksheet_name} (filter icon remains)")
             
         except Exception as e:
-            # Якщо фільтрів немає, просто ігноруємо помилку
-            logger.debug(f"No filters to clear (or error): {e}")
+            logger.error(f"Failed to reset filters: {e}")
+
     def get_main_data(self) -> List[Dict[str, Any]]:
         """
-        Отримати дані з основної таблиці
-        
-        ✅ FIXED v4.0:
-        - Конвертує числові поля в float ОДРАЗУ
-        - Більше ніяких проблем з комою!
-        - Всі ціни вже правильні float після цього методу
+        Get data from the main table
         """
         sheet_id = self.config['main_sheet']['id']
         sheet_name = self.config['main_sheet']['name']
         
         self.logger.info("Loading data from Google Sheets...")
         
-        # Прочитати сирі дані
+        # Read raw data
         raw_data = self.client.read_all_data(sheet_id, sheet_name)
         
         if not raw_data or len(raw_data) < 2:
             self.logger.warning("No data in main sheet")
             return []
         
-        # Перший рядок - заголовки (пропускаємо)
+        # The first line is the headers (skip this).
         headers = raw_data[0]
-        self.logger.debug(f"Headers: {headers[:12]}")  # Показати перші 12 колонок
+        self.logger.debug(f"Headers: {headers[:20]}")  # Show first 20 columns
         
         products = []
         conversion_errors = 0
         
-        for idx, row in enumerate(raw_data[1:], start=2):  # Починаємо з рядка 2
-            if not row or not row[0]:  # Пропустити порожні рядки
+        for idx, row in enumerate(raw_data[1:], start=2):  # Let's start with line 2
+            if not row or not row[0]:  # Skip empty lines
                 continue
             
             try:
-                # ✅ КЛЮЧОВИЙ МОМЕНТ: Конвертувати числа в float ОДРАЗУ!
+                # KEY POINT: Convert numbers to float IMMEDIATELY!
                 product = {
-                    # String поля
+                    # String fields
                     'sku': str(row[0]).strip() if len(row) > 0 else '',
                     'brand': str(row[1]).strip() if len(row) > 1 else '',
                     
-                    # ✅ ЧИСЛОВІ ПОЛЯ - конвертувати в float з обробкою коми!
+                    # NUMERIC FIELDS - convert to float with comma handling!
                     'Our Cost': self._to_float(row[2] if len(row) > 2 else None),
                     'Our Sales Price': self._to_float(row[3] if len(row) > 3 else None),
                     'Suggest Sales Price': self._to_float(row[4] if len(row) > 4 else None),
@@ -495,20 +492,31 @@ class RepricerSheetsManager:
                     # URL
                     'our_url': str(row[5]).strip() if len(row) > 5 else '',
                     
-                    # Competitor 1
+                    # Competitor 1 (Coleman)
                     'site1_price': self._to_float(row[6] if len(row) > 6 else None),
                     'site1_url': str(row[7]).strip() if len(row) > 7 else '',
                     
-                    # Competitor 2
+                    # Competitor 2 (1StopBedrooms)
                     'site2_price': self._to_float(row[8] if len(row) > 8 else None),
                     'site2_url': str(row[9]).strip() if len(row) > 9 else '',
                     
-                    # Competitor 3
+                    # Competitor 3 (AFA)
                     'site3_price': self._to_float(row[10] if len(row) > 10 else None),
                     'site3_url': str(row[11]).strip() if len(row) > 11 else '',
                     
+                    # Site 4 (Future competitor)
+                    'site4_price': self._to_float(row[12] if len(row) > 12 else None),
+                    'site4_url': str(row[13]).strip() if len(row) > 13 else '',
+                    
+                    # Site 5 (Future competitor)
+                    'site5_price': self._to_float(row[14] if len(row) > 14 else None),
+                    'site5_url': str(row[15]).strip() if len(row) > 15 else '',
+                    
+                    # Competitors_SKU (column S = index 18)
+                    'competitors_sku': str(row[18]).strip() if len(row) > 18 else '',
+                    
                     # Metadata
-                    'row_number': idx,  # Зберегти номер рядка для оновлення
+                    'row_number': idx,  # Зkeep the line number for updating
                 }
                 
                 products.append(product)
@@ -518,34 +526,32 @@ class RepricerSheetsManager:
                 conversion_errors += 1
                 continue
         
-        self.logger.info(f"✓ Loaded {len(products)} products from Google Sheets")
+        self.logger.info(f"[OK] Loaded {len(products)} products from Google Sheets")
         
         if conversion_errors > 0:
             self.logger.warning(f"⚠️ Had {conversion_errors} conversion errors")
         
-        # ✅ ДІАГНОСТИКА: Показати приклад що все правильно
+        # DIAGNOSTICS: Show an example that everything is correct
         if products:
             sample = products[0]
             self.logger.info("Sample product (after conversion):")
             self.logger.info(f"  SKU: {sample['sku']}")
             self.logger.info(f"  Our Cost: {sample['Our Cost']:.2f} (type: {type(sample['Our Cost']).__name__})")
-            self.logger.info(f"  Our Sales Price: {sample['Our Sales Price']:.2f} (type: {type(sample['Our Sales Price']).__name__})")
-            
-            # Перевірка що всі ціни float
-            if not isinstance(sample['Our Cost'], float):
-                self.logger.error("❌ Our Cost is NOT float! Still has conversion problem!")
-            else:
-                self.logger.info("✓ All prices are proper float types")
+            self.logger.info(f"  Competitors_SKU: '{sample['competitors_sku']}'")
+            if sample.get('site4_url'):
+                self.logger.info(f"  Site4 URL: {sample['site4_url']}")
+            if sample.get('site5_url'):
+                self.logger.info(f"  Site5 URL: {sample['site5_url']}")
         
         return products
     
     def update_product_prices(self, sku: str, prices: Dict[str, Any]) -> bool:
         """
-        Оновити ціни товару
+        Update product prices
         
         Args:
-            sku: SKU товару
-            prices: Словник з цінами {
+            sku: Product SKU
+            prices: Price list {
                 'our_price': 100.0,
                 'site1_price': 95.0,
                 'site1_url': 'http://...',
@@ -554,17 +560,17 @@ class RepricerSheetsManager:
             }
         
         Returns:
-            True якщо успішно
+            True if successful
         """
         try:
             sheet_id = self.config['main_sheet']['id']
             sheet_name = self.config['main_sheet']['name']
             
-            # Використати кеш для row_num (оптимізація!)
+            # Use cache for row_num (optimization!)
             if sku in self.row_cache:
                 row_num = self.row_cache[sku]
             else:
-                # Затримка перед пошуком (rate limit protection)
+                # Delay before search (rate limit protection)
                 time.sleep(0.5)
                 
                 row_num = self.client.find_row_by_sku(sheet_id, sku, sheet_name)
@@ -573,30 +579,30 @@ class RepricerSheetsManager:
                     self.logger.warning(f"SKU {sku} not found in main sheet")
                     return False
                 
-                # Зберегти в кеш
+                # Save to cache
                 self.row_cache[sku] = row_num
             
-            # Підготувати оновлення
-            # Припускаємо структуру: SKU, Brand, Our Cost, Our Sales Price, Suggest Sales Price,
+            # Prepare updates
+            # Assume structure: SKU, Brand, Our Cost, Our Sales Price, Suggest Sales Price,
             # Our URL, Site 1 Price, Site 1 URL, Site 2 Price, Site 2 URL, Site 3 Price, Site 3 URL, ...
             
             updates = []
             
-            # Our Sales Price (колонка D = 4)
+            # Our Sales Price (D = 4)
             if 'our_price' in prices:
                 updates.append({
                     'range': f'D{row_num}',
                     'values': [[prices['our_price']]]
                 })
             
-            # Suggest Sales Price (колонка E = 5)
+            # Suggest Sales Price (E = 5)
             if 'suggest_price' in prices:
                 updates.append({
                     'range': f'E{row_num}',
                     'values': [[prices['suggest_price']]]
                 })
-            
-            # Site 1 (колонки G, H = 7, 8)
+
+            # Site 1 (G, H = 7, 8)
             if 'site1_price' in prices:
                 updates.append({
                     'range': f'G{row_num}',
@@ -607,8 +613,8 @@ class RepricerSheetsManager:
                     'range': f'H{row_num}',
                     'values': [[prices['site1_url']]]
                 })
-            
-            # Site 2 (колонки I, J = 9, 10)
+
+            # Site 2 (I, J = 9, 10)
             if 'site2_price' in prices:
                 updates.append({
                     'range': f'I{row_num}',
@@ -619,8 +625,8 @@ class RepricerSheetsManager:
                     'range': f'J{row_num}',
                     'values': [[prices['site2_url']]]
                 })
-            
-            # Site 3 (колонки K, L = 11, 12)
+
+            # Site 3 (K, L = 11, 12)
             if 'site3_price' in prices:
                 updates.append({
                     'range': f'K{row_num}',
@@ -631,22 +637,22 @@ class RepricerSheetsManager:
                     'range': f'L{row_num}',
                     'values': [[prices['site3_url']]]
                 })
-            
-            # Last update (остання колонка)
+
+            # Last update (last column)
             updates.append({
-                'range': f'Q{row_num}',  # Припускаємо колонка Q
+                'range': f'Q{row_num}',  # Q
                 'values': [[datetime.now().strftime('%Y-%m-%d %H:%M:%S')]]
             })
-            
-            # Виконати batch update
+
+            # batch update
             if updates:
                 time.sleep(0.3)  # Rate limit protection
                 self.client.batch_update(sheet_id, updates, sheet_name)
                 self.logger.info(f"Updated prices for SKU {sku}")
                 return True
-            
+
             return False
-            
+
         except Exception as e:
             self.logger.error(f"Failed to update prices for SKU {sku}: {e}")
             return False
@@ -654,21 +660,20 @@ class RepricerSheetsManager:
     
     def batch_update_all(self, products: List[Dict]) -> int:
         """
-        Батчити всі оновлення разом (НАБАГАТО ШВИДШЕ!)
+        Download all updates together
         
-        ✅ FIXED v3.0:
-        - Конвертує competitor prices в float ПЕРЕД записом
-        - Підтримка дублюючих SKU
-        - Підтримка integer SKU
+        - Converts competitor prices to float BEFORE recording
+        - Support for duplicate SKUs
+        - Support for integer SKUs
         """
         self.logger.info(f"Batch updating {len(products)} products...")
         
         sheet_id = self.config['main_sheet']['id']
         sheet_name = self.config['main_sheet']['name']
         
-        self.clear_filters(sheet_id, sheet_name)
+        self.reset_filters(sheet_id, sheet_name)  # Reset filters
 
-        # Спочатку завантажити всі row numbers одним запитом
+        # First, download all row numbers with a single request.
         if not self.row_cache:
             self.logger.info("Building SKU row cache...")
             time.sleep(0.5)
@@ -676,14 +681,14 @@ class RepricerSheetsManager:
             worksheet = self.client.open_sheet(sheet_id, sheet_name)
             all_data = worksheet.get_all_values()
             
-            # ✅ Підтримка дублюючих SKU - зберігаємо LIST рядків
+            # Support for duplicate SKUs - storing a LIST of strings
             from collections import defaultdict
             self.row_cache = defaultdict(list)  # SKU -> [row_num1, row_num2, ...]
             
-            # Знайти колонку SKU (припускаємо A)
+            # Find the SKU column (A)
             for idx, row in enumerate(all_data, start=1):
-                if row and row[0]:  # SKU в колонці A
-                    # ✅ конвертуємо в string + strip для integer SKU
+                if row and row[0]:  # SKU A
+                    # convert to string + strip for integer SKU
                     sku_str = str(row[0]).strip()
                     self.row_cache[sku_str].append(idx)
             
@@ -692,33 +697,33 @@ class RepricerSheetsManager:
             
             self.logger.info(f"Cached {unique_skus} unique SKUs ({total_rows} total rows)")
             
-            # Показати приклади дублікатів
+            # Show examples of duplicates
             duplicates = {sku: rows for sku, rows in self.row_cache.items() if len(rows) > 1}
             if duplicates:
                 self.logger.warning(f"Found {len(duplicates)} SKUs with duplicates:")
-                for sku, rows in list(duplicates.items())[:5]:  # Показати перші 5
+                for sku, rows in list(duplicates.items())[:5]:  # Show first 5
                     self.logger.warning(f"  SKU '{sku}' appears in rows: {rows}")
         
-        # Підготувати всі оновлення
+        # Prepare all updates
         all_updates = []
         updated_count = 0
         skipped_count = 0
         
         for product in products:
-            # ✅ конвертувати SKU в string для співставлення
+            # convert SKU to string for comparison
             sku = product.get('sku') or product.get('SKU')
             if not sku:
                 skipped_count += 1
                 continue
             
-            sku_str = str(sku).strip()  # ✅ Конвертувати в string
+            sku_str = str(sku).strip()  # Convert to string
             
             if sku_str not in self.row_cache:
                 self.logger.debug(f"SKU '{sku_str}' not found in cache")
                 skipped_count += 1
                 continue
             
-            # ✅ Оновити ВСІ рядки з цим SKU (включно дублікати)
+            # Update ALL rows with this SKU (including duplicates)
             row_numbers = self.row_cache[sku_str]
             
             prices = product.get('_prices_to_update', {})
@@ -727,63 +732,89 @@ class RepricerSheetsManager:
                 skipped_count += 1
                 continue
             
-            # Додати updates для КОЖНОГО рядка з цим SKU
+            # Add updates for EVERY row with this SKU
             for row_num in row_numbers:
                 if 'suggest_price' in prices:
-                    # ✅ Конвертувати в float якщо string
+                    # Convert to float if string
                     suggest_price = self._to_float(prices['suggest_price'])
                     all_updates.append({
                         'range': f'E{row_num}',
                         'values': [[suggest_price]]
                     })
                 
-                if 'site1_price' in prices:
-                    # ✅ КРИТИЧНО: Конвертувати competitor price в float!
-                    site1_price = self._to_float(prices.get('site1_price'))
-                    site1_url = prices.get('site1_url', '')
-                    
-                    all_updates.append({
-                        'range': f'G{row_num}:H{row_num}',
-                        'values': [[site1_price, site1_url]]
-                    })
+                # Site 1 (Coleman)
+            if 'site1_price' in prices:
+                site1_price_raw = prices.get('site1_price')
+                site1_price = self._to_float(site1_price_raw) if site1_price_raw else ''
+                site1_url = prices.get('site1_url', '')
+                site1_sku = prices.get('site1_sku', '')
                 
-                if 'site2_price' in prices:
-                    # ✅ Конвертувати в float
-                    site2_price = self._to_float(prices.get('site2_price'))
-                    site2_url = prices.get('site2_url', '')
-                    
-                    all_updates.append({
-                        'range': f'I{row_num}:J{row_num}',
-                        'values': [[site2_price, site2_url]]
-                    })
+                all_updates.append({
+                    'range': f'G{row_num}:H{row_num}',
+                    'values': [[site1_price, site1_url]]
+                })
+            
+            # Site 2 (1StopBedrooms)
+            if 'site2_price' in prices:
+                site2_price_raw = prices.get('site2_price')
+                site2_price = self._to_float(site2_price_raw) if site2_price_raw else ''
+                site2_url = prices.get('site2_url', '')
                 
-                if 'site3_price' in prices:
-                    # ✅ Конвертувати в float
-                    site3_price = self._to_float(prices.get('site3_price'))
-                    site3_url = prices.get('site3_url', '')
-                    
-                    all_updates.append({
-                        'range': f'K{row_num}:L{row_num}',
-                        'values': [[site3_price, site3_url]]
-                    })
+                all_updates.append({
+                    'range': f'I{row_num}:J{row_num}',
+                    'values': [[site2_price, site2_url]]
+                })
+            
+            # Site 3 (AFA)
+            if 'site3_price' in prices:
+                site3_price_raw = prices.get('site3_price')
+                site3_price = self._to_float(site3_price_raw) if site3_price_raw else ''
+                site3_url = prices.get('site3_url', '')
                 
-                # Last update (колонка Q)
+                all_updates.append({
+                    'range': f'K{row_num}:L{row_num}',
+                    'values': [[site3_price, site3_url]]
+                })
+            
+            # Site 4 (Future)
+            if 'site4_price' in prices:
+                site4_price_raw = prices.get('site4_price')
+                site4_price = self._to_float(site4_price_raw) if site4_price_raw else ''
+                site4_url = prices.get('site4_url', '')
+                
+                all_updates.append({
+                    'range': f'M{row_num}:N{row_num}',
+                    'values': [[site4_price, site4_url]]
+                })
+            
+            # Site 5 (Future)
+            if 'site5_price' in prices:
+                site5_price_raw = prices.get('site5_price')
+                site5_price = self._to_float(site5_price_raw) if site5_price_raw else ''
+                site5_url = prices.get('site5_url', '')
+                
+                all_updates.append({
+                    'range': f'O{row_num}:P{row_num}',
+                    'values': [[site5_price, site5_url]]
+                })
+
+                # Last update (Q)
                 all_updates.append({
                     'range': f'Q{row_num}',
                     'values': [[datetime.now().strftime('%Y-%m-%d %H:%M:%S')]]
                 })
-            
+
             updated_count += 1
         
-        # Виконати ОДИН batch update для всіх товарів
+        # Perform ONE batch update for all products
         if all_updates:
             self.logger.info(f"Executing batch update: {len(all_updates)} changes for {updated_count} products")
             if skipped_count > 0:
                 self.logger.info(f"Skipped: {skipped_count} products (no SKU or no prices)")
             time.sleep(0.5)
             
-            # Google Sheets API дозволяє до 1000 updates за раз
-            # Розбити на chunks по 500
+            # Google Sheets API allows up to 1000 updates at a time.
+            # Break into chunks of 500.
             chunk_size = 500
             for i in range(0, len(all_updates), chunk_size):
                 chunk = all_updates[i:i+chunk_size]
@@ -792,9 +823,9 @@ class RepricerSheetsManager:
                 self.logger.info(f"  Updated chunk {i//chunk_size + 1}/{(len(all_updates)-1)//chunk_size + 1}")
                 
                 if i + chunk_size < len(all_updates):
-                    time.sleep(1.0)  # Затримка між chunks
+                    time.sleep(1.0)  # Delay between chunks
             
-            self.logger.info(f"✓ Batch update completed: {updated_count} products")
+            self.logger.info(f"[OK] Batch update completed: {updated_count} products")
         else:
             self.logger.warning("No updates to perform!")
         
@@ -802,9 +833,9 @@ class RepricerSheetsManager:
     
     def batch_add_to_history(self, history_records: List[Dict]) -> int:
         """
-        ✅ FIXED v4.0: TRUE Batch запис Price History з auto-expand
+        TRUE Batch recording Price History with auto-expand
         
-        Структура: Date | SKU | URL | Old Price | New Price | Change
+        Structure: Date | SKU | URL | Old Price | New Price | Change
         """
         if not history_records:
             return 0
@@ -813,7 +844,7 @@ class RepricerSheetsManager:
             sheet_id = self.config['main_sheet']['id']
             history_name = 'Price_History'
             
-            # Перевірити worksheet ОДИН РАЗ (1 API call)
+            # Check worksheet ONCE (1 API call)
             if not self.client.worksheet_exists(sheet_id, history_name):
                 self.logger.info(f"Creating Price_History worksheet...")
                 ws = self.client.create_worksheet(sheet_id, history_name, rows=5000, cols=6)
@@ -828,7 +859,7 @@ class RepricerSheetsManager:
             for record in history_records:
                 old_price = record.get('old_price', 0)
                 new_price = record.get('new_price', 0)
-                # ✅ ВИПРАВЛЕННЯ: Завжди розраховувати change
+                # Always count on change
                 change = new_price - old_price
                 
                 row = [
@@ -841,17 +872,17 @@ class RepricerSheetsManager:
                 ]
                 all_rows.append(row)
             
-            # Записати ВСЕ одним batch update
+            # Record EVERYTHING in one batch update
             if all_rows:
                 time.sleep(0.5)
                 worksheet = self.client.open_sheet(sheet_id, history_name)
                 
-                # Визначити початковий рядок (після header)
+                # Determine the initial line (after the header)
                 existing_data = worksheet.get_all_values()
                 start_row = len(existing_data) + 1
                 end_row = start_row + len(all_rows) - 1
                 
-                # ✅ ВИПРАВЛЕННЯ: Розширити worksheet якщо потрібно
+                # Expand the worksheet if necessary
                 current_rows = worksheet.row_count
                 rows_needed = end_row
                 
@@ -860,11 +891,11 @@ class RepricerSheetsManager:
                     worksheet.resize(rows=rows_needed)
                     time.sleep(0.3)
                 
-                # Update одним range
+                # Update one range
                 range_name = f'A{start_row}:F{end_row}'
                 worksheet.update(range_name, all_rows, value_input_option='USER_ENTERED')
                 
-                self.logger.info(f"✓ Added {len(all_rows)} records to Price_History")
+                self.logger.info(f"[OK] Added {len(all_rows)} records to Price_History")
                 return len(all_rows)
             
             return 0
@@ -876,28 +907,28 @@ class RepricerSheetsManager:
 
     def update_emma_mason_data(self, url: str, emma_id: str, new_price: float) -> bool:
         """
-        Оновити дані Emma Mason для товару по URL
+        Update Emma Mason data for a product by URL
         
         Args:
-            url: URL товару (для пошуку рядка)
-            emma_id: ID з Emma Mason
-            new_price: Нова ціна
+            url: Product URL (for string search)
+            emma_id: ID from Emma Mason
+            new_price: New price
         
         Returns:
-            True якщо успішно
+            True if successful
         """
         try:
             sheet_id = self.config['main_sheet']['id']
             sheet_name = self.config['main_sheet']['name']
             
-            # Знайти рядок по URL
+            # Find a string by URL
             time.sleep(0.5)
             worksheet = self.client.open_sheet(sheet_id, sheet_name)
             
-            # Отримати всі URL (колонка F = Our URL)
+            # Get all URLs (column F = Our URL)
             all_urls = worksheet.col_values(6)  # F = 6
             
-            # Знайти індекс
+            # Find index
             url_normalized = url.strip().lower()
             row_num = None
             
@@ -910,32 +941,32 @@ class RepricerSheetsManager:
                 self.logger.warning(f"URL not found in sheet: {url[:60]}")
                 return False
             
-            # Отримати стару ціну (Our Sales Price = колонка D)
+            # Get the old price (Our Sales Price = column D)
             old_price_cell = worksheet.cell(row_num, 4).value  # D = 4
             old_price = float(old_price_cell) if old_price_cell else 0.0
             
-            # Підготувати оновлення
+            # Prepare updates
             updates = []
             
-            # Our Sales Price (колонка D = 4)
+            # Our Sales Price (column D = 4)
             updates.append({
                 'range': f'D{row_num}',
                 'values': [[new_price]]
             })
             
-            # ID from emmamason (колонка R = 18)
+            # ID from emmamason (column R = 18)
             updates.append({
                 'range': f'R{row_num}',
                 'values': [[emma_id]]
             })
             
-            # Last update (колонка Q = 17)
+            # Last update (column Q = 17)
             updates.append({
                 'range': f'Q{row_num}',
                 'values': [[datetime.now().strftime('%Y-%m-%d %H:%M:%S')]]
             })
             
-            # Виконати batch update
+            # Perform a batch update
             if updates:
                 time.sleep(0.3)
                 self.client.batch_update(sheet_id, updates, sheet_name)
@@ -951,20 +982,19 @@ class RepricerSheetsManager:
 
     def batch_update_emma_mason(self, scraped_products: List[Dict]) -> int:
         """
-        Batch оновлення для Emma Mason товарів
+        Batch update for Emma Mason products
         
-        ✅ UPDATED v4.0:
-        - URL normalization (як раніше)
-        - ID fallback (НОВИНКА!)
-        - Matching логіка: спочатку URL → потім ID
+        - URL normalization
+        - ID fallback
+        - Matching logic: URL first, then ID
         - Price conversion
-        - Batch history з SKU
+        - Batch history with SKU
         
         Args:
-            scraped_products: Список товарів з Emma Mason [{'id': '', 'url': '', 'price': ''}]
+            scraped_products: List of products from Emma Mason [{‘id’: ‘’, ‘url’: ‘’, ‘price’: ‘’}]
         
         Returns:
-            Кількість оновлених товарів
+            Number of updated products
         """
         try:
             sheet_id = self.config['main_sheet']['id']
@@ -972,14 +1002,12 @@ class RepricerSheetsManager:
             
             self.logger.info(f"Batch updating Emma Mason data for {len(scraped_products)} products...")
             
-            # Завантажити всі дані з таблиці
+            # Download all data from the table
             time.sleep(0.5)
             worksheet = self.client.open_sheet(sheet_id, sheet_name)
             all_data = worksheet.get_all_values()
             
-            # ═══════════════════════════════════════════════════════════════
-            # ✅ НОВИНКА: Створити ДВА словники - для URL та для ID
-            # ═══════════════════════════════════════════════════════════════
+            # Create TWO dictionaries - one for URLs and one for IDs
             url_to_row = {}
             id_to_row = {}
             
@@ -990,7 +1018,7 @@ class RepricerSheetsManager:
                     emma_id = row[17].strip() if len(row) > 17 else ''  # R = ID from emmamason
                     old_price = row[3] if len(row) > 3 else ''  # D = Our Sales Price
                     
-                    # URL mapping (з нормалізацією)
+                    # URL mapping (with normalization)
                     if url_raw:
                         url_normalized = normalize_url(url_raw)
                         url_to_row[url_normalized] = {
@@ -1001,7 +1029,7 @@ class RepricerSheetsManager:
                             'emma_id': emma_id
                         }
                     
-                    # ✅ ID mapping (НОВИНКА!)
+                    # ID mapping
                     if emma_id:
                         id_to_row[emma_id] = {
                             'row_num': idx,
@@ -1013,14 +1041,12 @@ class RepricerSheetsManager:
             
             self.logger.info(f"Loaded {len(url_to_row)} URLs and {len(id_to_row)} IDs from sheet")
             
-            # ═══════════════════════════════════════════════════════════════
-            # Знайти співпадіння та підготувати оновлення
-            # ═══════════════════════════════════════════════════════════════
+            # Find matches and prepare updates
             all_updates = []
             updated_count = 0
             history_records = []
             
-            # Статистика matching
+            # Matching statistics
             matched_by_url = 0
             matched_by_id = 0
             no_match_count = 0
@@ -1031,18 +1057,16 @@ class RepricerSheetsManager:
                 emma_id = product.get('id', '').strip()
                 price_raw = product.get('price', '')
                 
-                # Перевірка що є хоча б URL або ID
+                # Check if there is at least a URL or ID
                 if not url_raw and not emma_id:
                     no_match_count += 1
                     continue
                 
-                # ═══════════════════════════════════════════════════════════════
-                # ✅ КЛЮЧОВА ЛОГІКА: Спочатку URL → потім ID
-                # ═══════════════════════════════════════════════════════════════
+                # First URL then ID
                 row_info = None
                 matched_by = None
                 
-                # КРОК 1: Спробувати знайти по URL
+                # Try to find by URL
                 if url_raw:
                     url_normalized = normalize_url(url_raw)
                     if url_normalized in url_to_row:
@@ -1050,26 +1074,24 @@ class RepricerSheetsManager:
                         matched_by = 'URL'
                         matched_by_url += 1
                 
-                # КРОК 2: Якщо не знайдено по URL - спробувати по ID
+                # If not found by URL, try by ID
                 if not row_info and emma_id:
                     if emma_id in id_to_row:
                         row_info = id_to_row[emma_id]
                         matched_by = 'ID'
                         matched_by_id += 1
                 
-                # Якщо не знайдено ні по URL, ні по ID
+                # If not found by URL or ID
                 if not row_info:
                     no_match_count += 1
                     continue
                 
-                # ═══════════════════════════════════════════════════════════════
-                # Отримати дані з row_info
-                # ═══════════════════════════════════════════════════════════════
+                # Get data from row_info
                 row_num = row_info['row_num']
                 sku = row_info['sku']
                 old_price_str = row_info['old_price']
                 
-                # ✅ Конвертувати ціну
+                # Convert price
                 try:
                     new_price = self._to_float(price_raw)
                     
@@ -1085,17 +1107,14 @@ class RepricerSheetsManager:
                 
                 old_price = self._to_float(old_price_str)
                 
-                # ═══════════════════════════════════════════════════════════════
-                # Підготувати updates
-                # ═══════════════════════════════════════════════════════════════
-                
+                # Prepare updates
                 # Our Sales Price (D = 4)
                 all_updates.append({
                     'range': f'D{row_num}',
                     'values': [[new_price]]
                 })
                 
-                # ID from emmamason (R = 18) - оновити якщо є новий ID
+                # ID from emmamason (R = 18) - update if there is a new ID
                 if emma_id:
                     all_updates.append({
                         'range': f'R{row_num}',
@@ -1110,7 +1129,7 @@ class RepricerSheetsManager:
                 
                 updated_count += 1
                 
-                # ✅ Зберегти для історії з SKU!
+                # Save for history with SKU!
                 if abs(new_price - old_price) > 0.01:
                     history_records.append({
                         'sku': sku,
@@ -1119,18 +1138,16 @@ class RepricerSheetsManager:
                         'new_price': new_price
                     })
             
-            # ═══════════════════════════════════════════════════════════════
-            # ✅ ЗВІТ про matching (ПОКРАЩЕНИЙ!)
-            # ═══════════════════════════════════════════════════════════════
+            # MATCHING REPORT
             self.logger.info("="*60)
             self.logger.info("EMMA MASON MATCHING RESULTS:")
             self.logger.info(f"  Total products from scraper: {len(scraped_products)}")
             self.logger.info(f"  URLs in sheet: {len(url_to_row)}")
             self.logger.info(f"  IDs in sheet: {len(id_to_row)}")
             self.logger.info("")
-            self.logger.info(f"  ✅ Matched by URL: {matched_by_url}")
-            self.logger.info(f"  ✅ Matched by ID (fallback): {matched_by_id}")
-            self.logger.info(f"  ❌ No match: {no_match_count}")
+            self.logger.info(f"  [OK] Matched by URL: {matched_by_url}")
+            self.logger.info(f"  [OK] Matched by ID (fallback): {matched_by_id}")
+            self.logger.info(f"  [ERROR] No match: {no_match_count}")
             
             if price_conversion_errors > 0:
                 self.logger.warning(f"  ⚠️  Price conversion errors: {price_conversion_errors}")
@@ -1142,9 +1159,7 @@ class RepricerSheetsManager:
             
             self.logger.info("="*60)
             
-            # ═══════════════════════════════════════════════════════════════
-            # Виконати batch update
-            # ═══════════════════════════════════════════════════════════════
+            # Perform a batch update
             if all_updates:
                 self.logger.info(f"Executing batch update with {len(all_updates)} changes...")
                 
@@ -1157,13 +1172,13 @@ class RepricerSheetsManager:
                     if i + chunk_size < len(all_updates):
                         time.sleep(1.0)
                 
-                self.logger.info(f"✓ Batch update completed: {updated_count} products")
+                self.logger.info(f"[OK] Batch update completed: {updated_count} products")
             
-            # ✅ Додати записи в історію (BATCH!)
+            # Add entries to history
             if history_records:
                 self.logger.info(f"Adding {len(history_records)} records to Price_History (batch mode)...")
                 added = self.batch_add_to_history(history_records)
-                self.logger.info(f"✓ Price History: {added} records added")
+                self.logger.info(f"[OK] Price History: {added} records added")
             
             return updated_count
             
@@ -1173,44 +1188,34 @@ class RepricerSheetsManager:
 
     def _to_float(self, value, default: float = 0.0) -> float:
         """
-        Конвертувати значення в float з обробкою різних форматів
-        
-        ✅ ПРАВИЛЬНЕ РІШЕННЯ замість костилів!
-        
-        Підтримка:
-        - "507.66" (крапка)
-        - "507,66" (кома - європейський формат) ✅
-        - "507 66" (пробіл)
-        - 507.66 (вже float)
-        - 507 (int)
-        - "" або None (повертає default)
+        Convert values to float with handling of different formats
         """
         if value is None or value == '':
             return default
         
-        # Якщо вже число
+        # If the number
         if isinstance(value, (int, float)):
             return float(value)
         
-        # Якщо string
+        # If the stringRemove spaces
         if isinstance(value, str):
             try:
-                # Прибрати пробіли
+                # Remove spaces
                 cleaned = value.strip()
                 
                 if not cleaned:
                     return default
                 
-                # ✅ КЛЮЧОВИЙ МОМЕНТ: Замінити кому на крапку
+                # Replace comma with period
                 cleaned = cleaned.replace(',', '.')
                 
-                # Прибрати пробіли всередині (для "1 000.50")
+                # Remove spaces inside
                 cleaned = cleaned.replace(' ', '')
                 
-                # Прибрати $ якщо є
+                # Remove $ if present
                 cleaned = cleaned.replace('$', '')
                 
-                # Конвертувати
+                # Convert
                 result = float(cleaned)
                 
                 return result
@@ -1220,8 +1225,7 @@ class RepricerSheetsManager:
                     f"Failed to convert '{value}' to float: {e}. Using default: {default}"
                 )
                 return default
-        
-        # Інший тип - спробувати
+
         try:
             return float(value)
         except:
@@ -1231,19 +1235,17 @@ class RepricerSheetsManager:
     def batch_update_competitors_raw(
         self, 
         competitor_data: Dict[str, List[Dict]],
-        matched_tracker=None  # NEW parameter
+        matched_tracker=None
     ) -> int:
         """
         Update Competitors sheet with matched tracking
-        
-        FIXED: Використовує правильний API (як batch_update_emma_mason_raw)
         """
         
         try:
             sheet_id = self.config['main_sheet']['id']
             sheet_name = "Competitors"
             
-            # NEW: Headers with 4 additional columns
+            #Headers with 4 additional columns
             headers = [
                 'Source',
                 'SKU',
@@ -1252,10 +1254,10 @@ class RepricerSheetsManager:
                 'Brand',
                 'Title',
                 'Date Scraped',
-                'Matched',              # NEW
-                'Matched With',         # NEW
-                'Matched With URL',     # NEW
-                'Used In Pricing'       # NEW
+                'Matched',
+                'Matched With',
+                'Matched With URL',
+                'Used In Pricing'
             ]
             
             all_rows = []
@@ -1273,7 +1275,7 @@ class RepricerSheetsManager:
                 for product in products:
                     sku = str(product.get('sku', ''))
                     
-                    # NEW: Get tracking info
+                    # Get tracking info
                     matched = False
                     matched_with = ''
                     matched_with_url = ''
@@ -1306,10 +1308,7 @@ class RepricerSheetsManager:
                 self.logger.warning("No competitor data to write")
                 return 0
             
-            # ═══════════════════════════════════════════════════════════════
-            # FIXED: Use correct API (like batch_update_emma_mason_raw)
-            # ═══════════════════════════════════════════════════════════════
-            
+            # Use correct API (like batch_update_emma_mason_raw)
             self.logger.info(f"Updating {sheet_name} sheet with {len(all_rows)} products...")
             
             # Check if worksheet exists
@@ -1350,7 +1349,7 @@ class RepricerSheetsManager:
             self.logger.info(f"Writing {len(all_rows)} competitor products...")
             worksheet.update(range_name, all_rows, value_input_option='USER_ENTERED')
             
-            self.logger.info(f"✓ {sheet_name} sheet updated: {len(all_rows)} products")
+            self.logger.info(f"[OK] {sheet_name} sheet updated: {len(all_rows)} products")
             
             return len(all_rows)
             
@@ -1360,17 +1359,14 @@ class RepricerSheetsManager:
     
     def batch_update_emma_mason_raw(self, scraped_products: List[Dict]) -> int:
         """
-        ✅ DEBUG: Записати ВСІ RAW дані від Emma Mason scraper
-        
-        Структура Emma_Mason_Raw sheet:
-        ID | URL | Price | Brand | Scraped At
+        Record ALL RAW data from Emma Mason scraper
         
         Args:
-            scraped_products: Список товарів з Emma Mason scraper
-                [{'id': '', 'url': '', 'price': '', 'brand': '', 'scraped_at': ''}, ...]
+            scraped_products: List of products from Emma Mason scraper
+                [{‘id’: ‘’, ‘url’: ‘’, ‘price’: ‘’, ‘brand’: ‘’, ‘scraped_at’: ‘’}, ...]
         
         Returns:
-            Кількість записаних товарів
+            Number of items recorded
         """
         try:
             sheet_id = self.config['main_sheet']['id']
@@ -1382,7 +1378,7 @@ class RepricerSheetsManager:
             
             self.logger.info(f"Updating Emma_Mason_Raw sheet with {len(scraped_products)} RAW products...")
             
-            # Перевірити чи існує аркуш
+            # Check if a sheet exists
             if not self.client.worksheet_exists(sheet_id, emma_raw_sheet):
                 self.logger.info("Creating Emma_Mason_Raw worksheet...")
                 ws = self.client.create_worksheet(sheet_id, emma_raw_sheet, rows=10000, cols=5)
@@ -1398,7 +1394,7 @@ class RepricerSheetsManager:
                 ws.update('A1', [headers])
                 time.sleep(0.5)
             
-            # Підготувати ВСІ рядки
+            # Prepare ALL lines
             all_rows = []
             
             for product in scraped_products:
@@ -1411,14 +1407,14 @@ class RepricerSheetsManager:
                 ]
                 all_rows.append(row)
             
-            # Записати ВСЕ одним batch update
+            # Write EVERYTHING in one batch update
             if all_rows:
                 self.logger.info(f"Writing {len(all_rows)} Emma Mason RAW products...")
                 
                 time.sleep(0.5)
                 worksheet = self.client.open_sheet(sheet_id, emma_raw_sheet)
                 
-                # ✅ Розширити worksheet перед записом
+                # Expand the worksheet before writing
                 rows_needed = len(all_rows) + 1  # +1 для header
                 current_rows = worksheet.row_count
                 
@@ -1427,24 +1423,24 @@ class RepricerSheetsManager:
                     worksheet.resize(rows=rows_needed)
                     time.sleep(0.3)
                 
-                # Очистити старі дані (залишити тільки header)
+                # Clear old data (leave only header)
                 if current_rows > 1:
                     self.logger.info("Clearing old data...")
                     clear_range = f'A2:E{current_rows}'
                     worksheet.batch_clear([clear_range])
                     time.sleep(0.3)
                 
-                # Визначити діапазон
+                # Determine the range
                 start_row = 2  # Після header
                 end_row = start_row + len(all_rows) - 1
                 
-                # Update одним range з USER_ENTERED для правильного форматування
+                # Update one range with USER_ENTERED for correct formatting
                 range_name = f'A{start_row}:E{end_row}'
                 worksheet.update(range_name, all_rows, value_input_option='USER_ENTERED')
                 
-                self.logger.info(f"✅ Emma_Mason_Raw sheet updated: {len(all_rows)} RAW products")
+                self.logger.info(f"[OK] Emma_Mason_Raw sheet updated: {len(all_rows)} RAW products")
                 
-                # Показати статистику по брендах
+                # Show statistics by brand
                 brands = {}
                 for product in scraped_products:
                     brand = product.get('brand', 'Unknown')

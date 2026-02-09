@@ -1,12 +1,12 @@
 """
 Emma Mason Smart Scraper Wrapper v5.2.1 - FIXED
-✅ Спробує Algolia API v5.1 (швидко, 7000+ товарів)
-✅ Якщо key expired → auto-refresh через Playwright
-✅ Якщо не вдалося → fallback на HTML v3 (повільно, 600+ товарів)
-✅ Telegram notifications
-✅ Повністю автономний для хостингу
-✅ ВИПРАВЛЕНО v2.1: Playwright відкриває search URL (emmamason.com/?q=...)
-✅ ВИПРАВЛЕНО v2.1: Правильний regex для заміни API key в файлі
+[OK] Спробує Algolia API v5.1 (швидко, 7000+ товарів)
+[OK] Якщо key expired → auto-refresh через Playwright
+[OK] Якщо не вдалося → fallback на HTML v3 (повільно, 600+ товарів)
+[OK] Telegram notifications
+[OK] Повністю автономний для хостингу
+[OK] ВИПРАВЛЕНО v2.1: Playwright відкриває search URL (emmamason.com/?q=...)
+[OK] ВИПРАВЛЕНО v2.1: Правильний regex для заміни API key в файлі
 """
 
 import logging
@@ -17,16 +17,17 @@ from datetime import datetime
 from pathlib import Path
 
 # Импорти scrapers
-from .emmamason_algolia_v5_1 import (
-    EmmaMasonAlgoliaScraperV5_1,
+from .emmamason_algolia import (
+    EmmaMasonAlgoliaScraper,
     AlgoliaAPIKeyExpired
 )
 from .emmamason_brands import EmmaMasonBrandsScraper as EmmaMasonHTMLScraper
+from ..modules.error_logger import ScraperErrorMixin
 
 logger = logging.getLogger("emmamason_smart")
 
 
-class EmmaMasonSmartScraper:
+class EmmaMasonSmartScraper(ScraperErrorMixin):
     """
     Розумний wrapper для Emma Mason scraping
     
@@ -47,6 +48,7 @@ class EmmaMasonSmartScraper:
         """
         self.config = config
         self.error_logger = error_logger
+        self.scraper_name = "EmmaMasonSmartScraper"
         self.telegram_bot = telegram_bot
         
         self.api_key_last_update = None
@@ -64,149 +66,179 @@ class EmmaMasonSmartScraper:
         Returns:
             Список товарів
         """
-        start_time = time.time()
-        
-        # ══════════════════════════════════════════════════════════
-        # КРОК 1: Спробувати Algolia API v5.1
-        # ══════════════════════════════════════════════════════════
-        logger.info("\n[STEP 1] Attempting Algolia API v5.1...")
-        
-        try:
-            products = self._try_algolia_api()
+        try:  # ← ДОДАНО: Global try block
+            start_time = time.time()
             
-            # Перевірка результату
-            if products and len(products) >= 5000:
+            # ══════════════════════════════════════════════════════════
+            # КРОК 1: Спробувати Algolia API v5.1
+            # ══════════════════════════════════════════════════════════
+            logger.info("\n[STEP 1] Attempting Algolia API v5.1...")
+            
+            try:
+                products = self._try_algolia_api()
+                
+                # Перевірка результату
+                if products and len(products) >= 5000:
+                    duration = time.time() - start_time
+                    self.scraping_method = 'algolia'
+                    
+                    logger.info("="*60)
+                    logger.info(f"[OK] SUCCESS: Algolia API")
+                    logger.info(f"Products: {len(products)}")
+                    logger.info(f"Time: {duration:.1f}s")
+                    logger.info("="*60)
+                    
+                    self._send_notification(
+                        "[OK] Emma Mason: Algolia API Success",
+                        f"Products: {len(products)}\n"
+                        f"Time: {duration:.1f}s\n"
+                        f"Method: Algolia API v5.1"
+                    )
+                    
+                    return products
+                
+                else:
+                    # Мало товарів - можливо expired key
+                    logger.warning(f"⚠️  Low product count: {len(products) if products else 0}")
+                    raise AlgoliaAPIKeyExpired(f"Low count: {len(products) if products else 0}")
+            
+            except AlgoliaAPIKeyExpired as e:
+                logger.warning(f"Algolia API key issue detected: {e}")
+                
+                # ══════════════════════════════════════════════════════════
+                # КРОК 2: Спробувати auto-refresh API key
+                # ══════════════════════════════════════════════════════════
+                logger.info("\n[STEP 2] Attempting API key auto-refresh...")
+                
+                if self._try_auto_refresh_api_key():
+                    logger.info("[OK] API key refreshed successfully, retrying Algolia...")
+                    
+                    # Повторна спроба з новим ключем
+                    try:
+                        products = self._try_algolia_api()
+                        
+                        if products and len(products) >= 5000:
+                            duration = time.time() - start_time
+                            self.scraping_method = 'algolia'
+                            
+                            logger.info("="*60)
+                            logger.info(f"[OK] SUCCESS: Algolia API (after refresh)")
+                            logger.info(f"Products: {len(products)}")
+                            logger.info(f"Time: {duration:.1f}s")
+                            logger.info("="*60)
+                            
+                            self._send_notification(
+                                "[OK] Emma Mason: API Key Auto-Refreshed",
+                                f"API key було автоматично оновлено!\n\n"
+                                f"Products: {len(products)}\n"
+                                f"Time: {duration:.1f}s\n"
+                                f"Method: Algolia API v5.1"
+                            )
+                            
+                            return products
+                        
+                        else:
+                            logger.warning(f"Still low count after refresh: {len(products) if products else 0}")
+                    
+                    except Exception as e2:
+                        logger.error(f"Algolia failed after refresh: {e2}")
+                        # [OK] ДОДАНО: Log retry error
+                        self.log_scraping_error(
+                            error=e2,
+                            context={'stage': 'algolia_retry_after_refresh'}
+                        )
+                
+                else:
+                    logger.warning("Auto-refresh failed or Playwright not available")
+            
+            except Exception as e:
+                logger.error(f"Algolia API failed: {e}")
+                
+                # [OK] ДОДАНО: Log Algolia error
+                self.log_scraping_error(
+                    error=e,
+                    context={'stage': 'algolia_initial_attempt'}
+                )
+                
+                # Якщо це не AlgoliaAPIKeyExpired - можливо network issue
+                # Спробувати refresh на всяк випадок
+                if "timeout" not in str(e).lower() and "connection" not in str(e).lower():
+                    logger.info("Attempting refresh as precaution...")
+                    self._try_auto_refresh_api_key()
+            
+            # ══════════════════════════════════════════════════════════
+            # КРОК 3: Fallback на HTML v3 scraping
+            # ══════════════════════════════════════════════════════════
+            logger.warning("\n[STEP 3] Falling back to HTML scraping v3...")
+            
+            self._send_notification(
+                "⚠️ Emma Mason: Fallback to HTML",
+                "Algolia API не працює (можливо expired key).\n"
+                "Auto-refresh не вдався або Playwright не встановлено.\n\n"
+                "Використовується HTML scraping v3 (повільніше).\n\n"
+                "❗ Рекомендація: Оновити Algolia API key вручну для кращої швидкості."
+            )
+            
+            try:
+                products = self._try_html_scraping()
                 duration = time.time() - start_time
-                self.scraping_method = 'algolia'
+                self.scraping_method = 'html'
                 
                 logger.info("="*60)
-                logger.info(f"✅ SUCCESS: Algolia API")
+                logger.info(f"[OK] SUCCESS: HTML Fallback")
                 logger.info(f"Products: {len(products)}")
                 logger.info(f"Time: {duration:.1f}s")
                 logger.info("="*60)
                 
                 self._send_notification(
-                    "✅ Emma Mason: Algolia API Success",
+                    "[OK] Emma Mason: HTML Fallback Success",
                     f"Products: {len(products)}\n"
                     f"Time: {duration:.1f}s\n"
-                    f"Method: Algolia API v5.1"
+                    f"Method: HTML Scraping v3\n\n"
+                    f"Note: Повільніше за API, але працює.\n"
+                    f"Для кращої швидкості оновіть API key."
                 )
                 
                 return products
             
-            else:
-                # Мало товарів - можливо expired key
-                logger.warning(f"⚠️  Low product count: {len(products) if products else 0}")
-                raise AlgoliaAPIKeyExpired(f"Low count: {len(products) if products else 0}")
-        
-        except AlgoliaAPIKeyExpired as e:
-            logger.warning(f"Algolia API key issue detected: {e}")
-            
-            # ══════════════════════════════════════════════════════════
-            # КРОК 2: Спробувати auto-refresh API key
-            # ══════════════════════════════════════════════════════════
-            logger.info("\n[STEP 2] Attempting API key auto-refresh...")
-            
-            if self._try_auto_refresh_api_key():
-                logger.info("✅ API key refreshed successfully, retrying Algolia...")
+            except Exception as e:
+                logger.error(f"❌ HTML scraping also failed: {e}")
                 
-                # Повторна спроба з новим ключем
-                try:
-                    products = self._try_algolia_api()
-                    
-                    if products and len(products) >= 5000:
-                        duration = time.time() - start_time
-                        self.scraping_method = 'algolia'
-                        
-                        logger.info("="*60)
-                        logger.info(f"✅ SUCCESS: Algolia API (after refresh)")
-                        logger.info(f"Products: {len(products)}")
-                        logger.info(f"Time: {duration:.1f}s")
-                        logger.info("="*60)
-                        
-                        self._send_notification(
-                            "✅ Emma Mason: API Key Auto-Refreshed",
-                            f"API key було автоматично оновлено!\n\n"
-                            f"Products: {len(products)}\n"
-                            f"Time: {duration:.1f}s\n"
-                            f"Method: Algolia API v5.1"
-                        )
-                        
-                        return products
-                    
-                    else:
-                        logger.warning(f"Still low count after refresh: {len(products) if products else 0}")
-                
-                except Exception as e2:
-                    logger.error(f"Algolia failed after refresh: {e2}")
-            
-            else:
-                logger.warning("Auto-refresh failed or Playwright not available")
-        
-        except Exception as e:
-            logger.error(f"Algolia API failed: {e}")
-            
-            # Якщо це не AlgoliaAPIKeyExpired - можливо network issue
-            # Спробувати refresh на всяк випадок
-            if "timeout" not in str(e).lower() and "connection" not in str(e).lower():
-                logger.info("Attempting refresh as precaution...")
-                self._try_auto_refresh_api_key()
-        
-        # ══════════════════════════════════════════════════════════
-        # КРОК 3: Fallback на HTML v3 scraping
-        # ══════════════════════════════════════════════════════════
-        logger.warning("\n[STEP 3] Falling back to HTML scraping v3...")
-        
-        self._send_notification(
-            "⚠️ Emma Mason: Fallback to HTML",
-            "Algolia API не працює (можливо expired key).\n"
-            "Auto-refresh не вдався або Playwright не встановлено.\n\n"
-            "Використовується HTML scraping v3 (повільніше).\n\n"
-            "❗ Рекомендація: Оновити Algolia API key вручну для кращої швидкості."
-        )
-        
-        try:
-            products = self._try_html_scraping()
-            duration = time.time() - start_time
-            self.scraping_method = 'html'
-            
-            logger.info("="*60)
-            logger.info(f"✅ SUCCESS: HTML Fallback")
-            logger.info(f"Products: {len(products)}")
-            logger.info(f"Time: {duration:.1f}s")
-            logger.info("="*60)
-            
-            self._send_notification(
-                "✅ Emma Mason: HTML Fallback Success",
-                f"Products: {len(products)}\n"
-                f"Time: {duration:.1f}s\n"
-                f"Method: HTML Scraping v3\n\n"
-                f"Note: Повільніше за API, але працює.\n"
-                f"Для кращої швидкості оновіть API key."
-            )
-            
-            return products
-        
-        except Exception as e:
-            logger.error(f"❌ HTML scraping also failed: {e}")
-            
-            self._send_notification(
-                "🚨 Emma Mason: CRITICAL ERROR",
-                f"Algolia API failed\n"
-                f"Auto-refresh failed\n"
-                f"HTML scraping failed: {e}\n\n"
-                f"❗ ПОТРІБНА НЕГАЙНА УВАГА!"
-            )
-            
-            # Log error
-            if self.error_logger:
-                self.error_logger.log_error(
-                    "EmmaMasonSmartScraper",
-                    e,
-                    context={'all_methods_failed': True}
+                self._send_notification(
+                    "🚨 Emma Mason: CRITICAL ERROR",
+                    f"Algolia API failed\n"
+                    f"Auto-refresh failed\n"
+                    f"HTML scraping failed: {e}\n\n"
+                    f"❗ ПОТРІБНА НЕГАЙНА УВАГА!"
                 )
+                
+                # [OK] ВИПРАВЛЕНО: Використати ScraperErrorMixin метод
+                self.log_scraping_error(
+                    error=e,
+                    context={'stage': 'html_fallback', 'all_methods_failed': True}
+                )
+                
+                return []
+        
+        except Exception as global_error:  # ← ДОДАНО: Global exception handler
+            # [OK] ДОДАНО: Log будь-яку непередбачену помилку
+            logger.critical(f"🚨 Unexpected error in scrape_all_brands: {global_error}")
             
-            return []
+            self.log_scraping_error(
+                error=global_error,
+                context={'stage': 'scrape_all_brands_global', 'critical': True}
+            )
+            
+            # Відправити критичне сповіщення
+            self._send_notification(
+                "🚨 Emma Mason: UNEXPECTED ERROR",
+                f"Непередбачена помилка в scrape_all_brands:\n"
+                f"{type(global_error).__name__}: {str(global_error)}\n\n"
+                f"❗❗❗ КРИТИЧНА ПОМИЛКА - ПОТРІБНА УВАГА!"
+            )
+            
+            # Re-raise щоб main.py знав про критичну помилку
+            raise
     
     def _try_algolia_api(self) -> List[Dict]:
         """
@@ -220,8 +252,11 @@ class EmmaMasonSmartScraper:
             Exception: Інші помилки
         """
         # AlgoliaAPIKeyExpired exception автоматично передається вгору
-        scraper = EmmaMasonAlgoliaScraperV5_1(self.config, self.error_logger)
+        logger.info("Attempting Algolia API...")
+        scraper = EmmaMasonAlgoliaScraper(self.config, self.error_logger)
+        logger.info("Scraper initialized, fetching products...")
         products = scraper.scrape_all_brands()
+        logger.info(f"Algolia returned {len(products)} products")
         return products
     
     def _try_auto_refresh_api_key(self) -> bool:
@@ -251,11 +286,11 @@ class EmmaMasonSmartScraper:
             # Оновити в файлі
             if self._update_api_key_in_file(new_key):
                 self.api_key_last_update = datetime.now()
-                logger.info(f"✅ API key updated at {self.api_key_last_update}")
+                logger.info(f"[OK] API key updated at {self.api_key_last_update}")
                 
-                # ✅ КРИТИЧНО: Оновити ключ в поточному scraper class
-                EmmaMasonAlgoliaScraperV5_1.ALGOLIA_API_KEY = new_key
-                logger.info("✅ API key reloaded in memory")
+                # [OK] КРИТИЧНО: Оновити ключ в поточному scraper class
+                EmmaMasonAlgoliaScraper.ALGOLIA_API_KEY = new_key
+                logger.info("[OK] API key reloaded in memory")
                 
                 return True
             
@@ -269,7 +304,7 @@ class EmmaMasonSmartScraper:
         """
         Отримати новий API key через Playwright
         
-        ✅ ВАЖЛИВО: Algolia використовується ТІЛЬКИ для search!
+        [OK] ВАЖЛИВО: Algolia використовується ТІЛЬКИ для search!
         Тому треба обов'язково тригернути search запит.
         
         Returns:
@@ -280,7 +315,15 @@ class EmmaMasonSmartScraper:
             
             with sync_playwright() as p:
                 logger.info("Launching browser...")
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(
+                                headless=True,
+                                args=[
+                                    '--disable-blink-features=AutomationControlled',
+                                    '--disable-dev-shm-usage',
+                                    '--no-sandbox',
+                                    '--disable-setuid-sandbox',
+                                ]
+                            )
                 
                 # User agent для bypass detection
                 context = browser.new_context(
@@ -305,7 +348,7 @@ class EmmaMasonSmartScraper:
                             key = headers['x-algolia-api-key']
                             if key and len(key) > 20:  # Валідний ключ
                                 api_key = key
-                                logger.info(f"✅ Found API key: {api_key[:30]}...")
+                                logger.info(f"[OK] Found API key: {api_key[:30]}...")
                 
                 page.on('request', handle_request)
                 
@@ -325,7 +368,7 @@ class EmmaMasonSmartScraper:
                     time.sleep(3)
                     
                     if api_key:
-                        logger.info(f"✅ Method 1 (direct search URL) succeeded!")
+                        logger.info(f"[OK] Method 1 (direct search URL) succeeded!")
                         logger.info(f"   Captured after {request_count} Algolia requests")
                         return api_key
                     
@@ -362,7 +405,7 @@ class EmmaMasonSmartScraper:
                                 time.sleep(3)
                                 
                                 if api_key:
-                                    logger.info(f"✅ Method 2 (search input) succeeded!")
+                                    logger.info(f"[OK] Method 2 (search input) succeeded!")
                                     return api_key
                         
                         except Exception:
@@ -397,7 +440,7 @@ class EmmaMasonSmartScraper:
                         
                         if js_api_key and len(js_api_key) > 20:
                             api_key = js_api_key
-                            logger.info(f"✅ Method 3 (JavaScript) succeeded: {api_key[:30]}...")
+                            logger.info(f"[OK] Method 3 (JavaScript) succeeded: {api_key[:30]}...")
                             return api_key
                     
                     except Exception as e:
@@ -422,7 +465,7 @@ class EmmaMasonSmartScraper:
                             time.sleep(3)
                             
                             if api_key:
-                                logger.info(f"✅ Method 4 (alternative URL) succeeded!")
+                                logger.info(f"[OK] Method 4 (alternative URL) succeeded!")
                                 return api_key
                         
                         except Exception:
@@ -455,7 +498,7 @@ class EmmaMasonSmartScraper:
     
     def _update_api_key_in_file(self, new_key: str) -> bool:
         """
-        Оновити API key в emmamason_algolia_v5_1.py
+        Оновити API key в emmamason_algolia.py
         
         Args:
             new_key: Новий API key
@@ -464,7 +507,7 @@ class EmmaMasonSmartScraper:
             True якщо успішно
         """
         try:
-            file_path = Path(__file__).parent / 'emmamason_algolia_v5_1.py'
+            file_path = Path(__file__).parent / 'emmamason_algolia.py'
             
             if not file_path.exists():
                 logger.error(f"File not found: {file_path}")
@@ -481,7 +524,7 @@ class EmmaMasonSmartScraper:
             
             logger.info(f"Created backup: {backup_path}")
             
-            # ✅ ВИПРАВЛЕНО: Правильний regex pattern
+            # [OK] ВИПРАВЛЕНО: Правильний regex pattern
             # Шукає: ALGOLIA_API_KEY = "будь-що"
             # Важливо: (?!.*#) - не має бути # перед рядком (не закоментовано)
             pattern = r'^(\s*ALGOLIA_API_KEY\s*=\s*)"[^"]+"'
@@ -517,13 +560,14 @@ class EmmaMasonSmartScraper:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(new_content)
             
-            logger.info(f"✅ API key updated in {file_path}")
+            logger.info(f"[OK] API key updated in {file_path}")
             
             return True
         
         except Exception as e:
             logger.error(f"Failed to update file: {e}")
             import traceback
+
             logger.debug(traceback.format_exc())
             return False
     
@@ -571,7 +615,7 @@ class EmmaMasonSmartScraper:
             elif callable(self.telegram_bot):
                 self.telegram_bot(full_message)
             
-            logger.info(f"✅ Telegram notification sent: {title}")
+            logger.info(f"[OK] Telegram notification sent: {title}")
         
         except Exception as e:
             logger.error(f"Failed to send notification: {e}")
@@ -612,28 +656,5 @@ class EmmaMasonBrandsScraper:
         return self.smart_scraper.scrape_all_brands()
 
 
-# if __name__ == "__main__":
-#     import logging
-#     logging.basicConfig(
-#         level=logging.INFO,
-#         format='%(asctime)s | %(levelname)-8s | %(message)s',
-#         datefmt='%H:%M:%S'
-#     )
-    
-#     config = {
-#         'delay_min': 0.5,
-#         'delay_max': 1.5,
-#         'retry_attempts': 3,
-#         'timeout': 30,
-#         'hits_per_page': 1000
-#     }
-    
-#     print("\n" + "="*60)
-#     print("SMART SCRAPER TEST (FIXED)")
-#     print("="*60 + "\n")
-    
-#     scraper = EmmaMasonBrandsScraper(config)
-#     results = scraper.scrape_all_brands()
-    
-#     print(f"\n✅ RESULT: {len(results)} products")
-#     print(f"Method: {scraper.smart_scraper.scraping_method}")
+if __name__ == "__main__":
+    pass

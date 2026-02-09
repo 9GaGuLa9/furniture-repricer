@@ -1,12 +1,7 @@
 # Прибрати
-based/
 backup*/
-**output/
-*.bat
+docs*/
 *test*
-*.txt
-old_*
-*.xlsx
 *backup*
 *else*
 
