@@ -60,7 +60,7 @@ class GoogleSheetsConfigReader:
                 param_value = row[1].strip() if len(row) > 1 else ""
                 
                 if not param_name or param_name.startswith("==="):
-                    continue  # Skip empty lines and separatorsи
+                    continue  # Skip empty lines and separators
                 
                 # Convert values
                 config[param_name] = self._parse_value(param_value)
@@ -80,7 +80,7 @@ class GoogleSheetsConfigReader:
                 if param in config:
                     self.logger.info(f"  {param}: {config[param]}")
             
-            # Merge з defaults (if some parameters are missing)
+            # Merge with defaults (if some parameters are missing)
             default_config = self._get_default_config()
             for key, value in default_config.items():
                 if key not in config:
@@ -154,7 +154,7 @@ class GoogleSheetsConfigReader:
             self.logger.info(f"  Below competitor: ${rules.get('below_competitor', 1.0)}")
             self.logger.info(f"  Max rate: {rules.get('max_rate', 2.0)}")
             
-            # Merge з defaults
+            # Merge with defaults
             default_rules = self._get_default_price_rules()
             for key, value in default_rules.items():
                 if key not in rules:
@@ -174,7 +174,7 @@ class GoogleSheetsConfigReader:
             value: String value
         
         Returns:
-            Converted value (bool, int, float, або string)
+            Converted value (bool, int, float or string)
         """
         if not value:
             return None

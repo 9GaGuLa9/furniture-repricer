@@ -27,7 +27,7 @@ class SKUMatcher:
         """
         Remove manufacturer prefix from SKU
         
-        ⚠️ IMPORTANT: Remove the prefix for Coleman and 1StopBedrooms!
+        [!] IMPORTANT: Remove the prefix for Coleman and 1StopBedrooms!
         Leave other sources (AFA, Emma Mason) unchanged.
         
         Args:
@@ -93,7 +93,7 @@ class SKUMatcher:
         Args:
             sku_string: SKU or list of SKUs separated by a delimiter
             source: Source for correct prefix processing
-                    ⚠️ For Emma SKU, pass source=None to avoid removing the “prefix”
+                    [!] For Emma SKU, pass source=None to avoid removing the “prefix”
         """
         if not sku_string:
             return []
@@ -153,12 +153,12 @@ class SKUMatcher:
         # STEP 1: Check for a PERFECT match (the entire string)
         if self.strategy == 'exact':
             if self.exact_match(sku1, sku2, source=source):
-                logger.debug(f"✓ Full SKU match: '{sku1}' == '{sku2}'")
+                logger.debug(f"[OK] Full SKU match: '{sku1}' == '{sku2}'")
                 return True
         elif self.strategy == 'fuzzy':
             similarity = self.fuzzy_match(sku1, sku2, source=source)
             if similarity >= self.fuzzy_threshold:
-                logger.debug(f"✓ Full SKU fuzzy match: '{sku1}' ~= '{sku2}' (similarity: {similarity:.2f})")
+                logger.debug(f"[OK] Full SKU fuzzy match: '{sku1}' ~= '{sku2}' (similarity: {similarity:.2f})")
                 return True
         
         # STEP 2: Split Emma SKU into parts (if there is a “;”)
@@ -178,7 +178,7 @@ class SKUMatcher:
                 norm_sku2_no_prefix = self.normalize_sku(sku2, source=source)
                 
                 if norm_sku1 == norm_sku2_no_prefix:
-                    logger.debug(f"✓ SKU match after prefix removal: '{sku1}' == '{sku2}' (without prefix)")
+                    logger.debug(f"[OK] SKU match after prefix removal: '{sku1}' == '{sku2}' (without prefix)")
                     return True
             
             return False  # All options have already been checked
@@ -189,12 +189,12 @@ class SKUMatcher:
             # First, check for a regular coincidence
             if self.strategy == 'exact':
                 if self.exact_match(emma_part, sku2, source=source):
-                    logger.debug(f"✓ Partial SKU match: '{emma_part}' (from '{sku1}') == '{sku2}'")
+                    logger.debug(f"[OK] Partial SKU match: '{emma_part}' (from '{sku1}') == '{sku2}'")
                     return True
             elif self.strategy == 'fuzzy':
                 similarity = self.fuzzy_match(emma_part, sku2, source=source)
                 if similarity >= self.fuzzy_threshold:
-                    logger.debug(f"✓ Partial SKU fuzzy match: '{emma_part}' ~= '{sku2}' (similarity: {similarity:.2f})")
+                    logger.debug(f"[OK] Partial SKU fuzzy match: '{emma_part}' ~= '{sku2}' (similarity: {similarity:.2f})")
                     return True
             
             # If Coleman/1StopBedrooms - check WITHOUT prefix
@@ -203,7 +203,7 @@ class SKUMatcher:
                 norm_competitor_no_prefix = self.normalize_sku(sku2, source=source)
                 
                 if norm_emma == norm_competitor_no_prefix:
-                    logger.debug(f"✓ Partial SKU match after prefix removal: '{emma_part}' == '{sku2}' (without prefix)")
+                    logger.debug(f"[OK] Partial SKU match after prefix removal: '{emma_part}' == '{sku2}' (without prefix)")
                     return True
         
         return False
@@ -213,7 +213,7 @@ class SKUMatcher:
         """
         Find a product in the list by SKU
         
-        ⚠️ WARNING: Returns the FIRST match found!
+        [!] WARNING: Returns the FIRST match found!
         To select the best price, use find_best_match()
         
         Args:
@@ -260,7 +260,7 @@ class SKUMatcher:
         """
         Find the best match (with the lowest price)
         
-        Логіка:
+        Logic:
             1. Finds ALL matching products
             2. Selects the one with the lowest price among them
             3. If none match, returns None

@@ -1,7 +1,7 @@
 """
 AFA Stores Scraper - CLOUDFLARE BYPASS + CATEGORY-BASED SCRAPING
 Uses cloudscraper to bypass Cloudflare + goes through manufacturer categories
-run command “python -m app.scrapers.afa”  
+run command “python -m app.scrapers.afa”
 """
 
 import time
@@ -9,7 +9,15 @@ import logging
 import json
 from pathlib import Path
 from typing import List, Dict, Optional, Set
-from datetime import datetime
+from datetime import datetime, timedelta
+
+# Playwright for cookie warm-up
+try:
+    from playwright.sync_api import sync_playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+
 from ..modules.error_logger import ScraperErrorMixin
 
 try:
@@ -27,13 +35,17 @@ except ImportError:
 
 logger = logging.getLogger("afa")
 
-
 class AFAScraper(ScraperErrorMixin):
-    """Scraper для afastores.com через Shopify collections - category-based"""
+    """Scraper for afastores.com via Shopify collections - category-based"""
 
     BASE_URL = "https://www.afastores.com"
     PRODUCTS_PER_PAGE = 30  # AFA displays 30 products per page
     
+    # Cookie caching for Playwright warm-up
+    COOKIE_FILE = Path('cookies_afa.json')
+    COOKIE_LIFETIME = 1800  # 30 minutes
+
+
     # Mapping manufacturers to their slug for category uploads
     MANUFACTURER_SLUGS = {
         "Steve Silver": "steve-silver",
@@ -54,7 +66,7 @@ class AFAScraper(ScraperErrorMixin):
         self.retry_attempts = config.get('retry_attempts', 3)
         self.timeout = config.get('timeout', 30)
         self.proxies = config.get('proxies', None)
-        
+
         self.stats = {
             'total_products': 0,
             'unique_products': 0,
@@ -71,7 +83,7 @@ class AFAScraper(ScraperErrorMixin):
 
         # Download categories from JSON
         self.manufacturer_categories = self._load_categories()
-        
+
         # Initialize session with best available method
         self.session_type = None
         self.impersonate = None
@@ -79,23 +91,23 @@ class AFAScraper(ScraperErrorMixin):
         if CURL_CFFI_AVAILABLE:
             # We use Session to store cookies between requests.
             from curl_cffi.requests import Session
-            
+
             self.session_type = 'curl_cffi'
-            
+
             # Auto-detect working browser fingerprint
             logger.info("Initializing curl_cffi with auto-detection...")
             self.impersonate = self._find_working_impersonate()
-            
+
             if not self.impersonate:
                 logger.warning("Auto-detection failed, falling back to chrome120")
-                self.impersonate = 'chrome120'
-            
+                self.impersonate="chrome123"
+
             # Create a Session (stores cookies including cf_clearance)
             self.session = Session(impersonate=self.impersonate)
             self.scraper = None  # Not used for curl_cffi
-            
-            logger.info(f"✅ curl_cffi Session created with {self.impersonate}")
-            
+
+            logger.info(f"[DONE] curl_cffi Session created with {self.impersonate}")
+
             # Warm-up for obtaining cf_clearance
             self._warm_up_session()
 
@@ -137,27 +149,27 @@ class AFAScraper(ScraperErrorMixin):
         """
         Tests various browser fingerprints and returns the one that works
         Critical for bypassing Cloudflare — different fingerprints have different success rates
-        
+
         Returns:
             Name of working fingerprint or None
         """
         # List of browsers for testing (in order of priority)
         browsers = [
-            'chrome120',
-            'chrome124',
+            'chrome123',
+            'chrome123',
             'chrome116',
             'chrome110',
             'edge99',
             'safari15_5',
             'safari15_3'
         ]
-        
-        logger.info("🔍 Testing browser fingerprints for Cloudflare bypass...")
-        
+
+        logger.info("[SEARCH] Testing browser fingerprints for Cloudflare bypass...")
+
         for browser in browsers:
             try:
                 logger.info(f"  Testing {browser}...")
-                
+
                 # Test 1: Homepage
                 response = curl_requests.get(
                     self.BASE_URL,
@@ -165,10 +177,10 @@ class AFAScraper(ScraperErrorMixin):
                     timeout=10,
                     proxies=self.proxies
                 )
-                
+
                 if response.status_code == 200:
-                    logger.info(f"  ✅ {browser} homepage: 200 OK")
-                    
+                    logger.info(f"  [DONE] {browser} homepage: 200 OK")
+
                     # Test 2: Products.json API
                     test_url = f"{self.BASE_URL}/products.json?limit=1"
                     test_resp = curl_requests.get(
@@ -177,99 +189,222 @@ class AFAScraper(ScraperErrorMixin):
                         timeout=10,
                         proxies=self.proxies
                     )
-                    
+
                     if test_resp.status_code == 200:
-                        logger.info(f"  ✅ {browser} products API: 200 OK")
-                        logger.info(f"  ✅✅ {browser} PASSED ALL TESTS!")
+                        logger.info(f"  [DONE] {browser} products API: 200 OK")
+                        logger.info(f"  [DONE][DONE] {browser} PASSED ALL TESTS!")
                         return browser
                     else:
-                        logger.warning(f"  ⚠️  {browser} homepage OK but API failed: {test_resp.status_code}")
+                        logger.warning(f"  [!]  {browser} homepage OK but API failed: {test_resp.status_code}")
                 else:
-                    logger.warning(f"  ❌ {browser} homepage failed: {response.status_code}")
-                    
+                    logger.warning(f"  [X] {browser} homepage failed: {response.status_code}")
+
             except Exception as e:
-                logger.warning(f"  ❌ {browser} error: {e}")
+                logger.warning(f"  [X] {browser} error: {e}")
                 continue
-            
+
             time.sleep(2)  # Delay between tests to avoid triggering rate limits
-        
-        logger.error("❌ No working browser fingerprint found!")
+
+        logger.error("[X] No working browser fingerprint found!")
         return None
-    
+
     def _load_categories(self) -> dict:
         """
         Download manufacturer categories from JSON file
-        
+
         Returns:
             Dict with categories for each manufacturer
         """
         try:
             # Path to JSON file with categories
             json_path = Path(__file__).parent.parent / 'data' / 'manufacturer_categories.json'
-            
+
             if not json_path.exists():
                 logger.warning(f"Categories file not found: {json_path}")
                 return {}
-            
+
             with open(json_path, 'r', encoding='utf-8') as f:
                 categories = json.load(f)
-            
+
             logger.info(f"Loaded categories for {len(categories)} manufacturers")
             return categories
-        
+
         except Exception as e:
             logger.error(f"Failed to load categories: {e}")
+            return {}
+
+    def _load_cookies_from_cache(self) -> Optional[Dict]:
+        """Load cookies from file if not expired"""
+        if not self.COOKIE_FILE.exists():
+            logger.debug("[!] No cookie cache found")
+            return None
+        
+        try:
+            with open(self.COOKIE_FILE, 'r') as f:
+                data = json.load(f)
+            
+            age = time.time() - data['timestamp']
+            if age > self.COOKIE_LIFETIME:
+                logger.info(f"[!] Cookies expired ({age/60:.1f} min old)")
+                return None
+            
+            logger.info(f"[OK] Loaded {len(data['cookies'])} cookies from cache ({age/60:.1f} min old)")
+            return data['cookies']
+        
+        except Exception as e:
+            logger.error(f"Failed to load cookie cache: {e}")
+            return None
+    
+    def _save_cookies_to_cache(self, cookies: Dict):
+        """Save cookies to file"""
+        try:
+            data = {
+                'timestamp': time.time(),
+                'cookies': cookies
+            }
+            with open(self.COOKIE_FILE, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            logger.info(f"[OK] Saved {len(cookies)} cookies to cache")
+        
+        except Exception as e:
+            logger.error(f"Failed to save cookies: {e}")
+    
+    def _warm_up_with_playwright(self) -> Dict:
+        """
+        Get Cloudflare cookies via Playwright (real browser)
+        
+        Returns:
+            Dict of cookies
+        """
+        if not PLAYWRIGHT_AVAILABLE:
+            logger.warning("Playwright not installed! Install: pip install playwright")
+            logger.warning("Then run: playwright install chromium")
+            return {}
+        
+        logger.info("="*60)
+        logger.info("[HOT] Warming up with Playwright (real browser)...")
+        logger.info("="*60)
+        
+        cookies = {}
+        
+        try:
+            with sync_playwright() as p:
+                logger.info("  -> Launching Chromium...")
+                browser = p.chromium.launch(headless=True)
+                
+                context = browser.new_context(
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='en-US'
+                )
+                
+                page = context.new_page()
+                
+                logger.info(f"  -> Opening {self.BASE_URL}...")
+                page.goto(self.BASE_URL, wait_until='domcontentloaded', timeout=60000)
+                
+                logger.info("  -> Waiting for Cloudflare challenge...")
+                time.sleep(5)
+                
+                title = page.title()
+                logger.info(f"  -> Page loaded: {title[:50]}")
+                
+                # Extract cookies
+                cookies_list = context.cookies()
+                cookies = {c['name']: c['value'] for c in cookies_list}
+                
+                # Check critical cookies
+                if 'cf_clearance' in cookies:
+                    logger.info(f"  [OK] Got cf_clearance: {cookies['cf_clearance'][:30]}...")
+                else:
+                    logger.warning("  [!] No cf_clearance (may still work)")
+                
+                shopify_cookies = [k for k in cookies.keys() if 'shopify' in k.lower()]
+                if shopify_cookies:
+                    logger.info(f"  [OK] Got {len(shopify_cookies)} Shopify cookies")
+                
+                logger.info(f"  [OK] Total cookies: {len(cookies)}")
+                
+                browser.close()
+            
+            # Save to cache
+            self._save_cookies_to_cache(cookies)
+            
+            logger.info("[OK] Playwright warm-up completed")
+            logger.info("="*60)
+            
+            return cookies
+        
+        except Exception as e:
+            logger.error(f"Playwright warm-up failed: {e}")
+            logger.error("Continuing with curl_cffi warm-up...")
             return {}
     
     def _warm_up_session(self):
         """
-        CRITICAL for bypassing Cloudflare!
-        Receives cf_clearance cookie by visiting the home page
+        ENHANCED: Playwright warm-up + curl_cffi fallback
+        Gets cf_clearance cookie via Playwright or curl_cffi
         """
-        try:
-            logger.info("🔥 Warming up session (getting cf_clearance cookie)...")
-            
+        # Try to load cached cookies first
+        cached_cookies = self._load_cookies_from_cache()
+        
+        if cached_cookies:
+            # Use cached cookies with curl_cffi session
             if self.session_type == 'curl_cffi':
-                # We use session (stores cookies automatically)
+                for name, value in cached_cookies.items():
+                    self.session.cookies.set(name, value, domain='afastores.com')
+                logger.info("[OK] Using cached cookies with curl_cffi")
+                return
+        
+        # No cache or expired - try Playwright
+        if PLAYWRIGHT_AVAILABLE:
+            playwright_cookies = self._warm_up_with_playwright()
+            
+            if playwright_cookies and self.session_type == 'curl_cffi':
+                for name, value in playwright_cookies.items():
+                    self.session.cookies.set(name, value, domain='afastores.com')
+                logger.info("[OK] Applied Playwright cookies to curl_cffi session")
+                return
+        
+        # Fallback to original curl_cffi warm-up
+        try:
+            logger.info("[HOT] Warming up session with curl_cffi...")
+
+            if self.session_type == 'curl_cffi':
                 response = self.session.get(
                     self.BASE_URL,
                     timeout=self.timeout,
                     proxies=self.proxies
                 )
             else:
-                # cloudscraper
                 response = self.scraper.get(
                     self.BASE_URL,
                     timeout=self.timeout,
                     proxies=self.proxies
                 )
-            
+
             response.raise_for_status()
-            
-            # Check cookies
+
             if self.session_type == 'curl_cffi':
-                # curl_cffi Session зберігає cookies
                 cookies_str = str(self.session.cookies)[:200]
                 has_cf = 'cf_clearance' in cookies_str or 'cloudflare' in cookies_str.lower()
-                logger.info(f"✅ Session warmed up: {response.status_code}")
+                logger.info(f"[OK] curl_cffi warm-up: {response.status_code}")
                 logger.info(f"   Cookies preview: {cookies_str}...")
                 if has_cf:
-                    logger.info(f"   ✅ Cloudflare cookies detected!")
+                    logger.info(f"   [OK] Cloudflare cookies detected!")
                 else:
-                    logger.warning(f"   ⚠️  No obvious Cloudflare cookies (may still work)")
+                    logger.warning(f"   [!] No obvious Cloudflare cookies (may still work)")
             else:
-                logger.info(f"✅ Session warmed up: {response.status_code}")
+                logger.info(f"[OK] Session warmed up: {response.status_code}")
                 logger.info(f"   Cookies count: {len(self.scraper.cookies)}")
-            
-            # Delay after warm-up (simulating that the user is reading the page)
-            logger.debug("Pausing after warm-up (simulating user behavior)...")
+
             time.sleep(3)
-            
+
         except Exception as e:
-            logger.error(f"❌ Failed to warm up session: {e}")
-            logger.error("⚠️  Continuing anyway, but expect 403 errors!")
-            logger.error("💡 Try: different network, proxy, or wait 24h for IP unblock")
-    
+            logger.error(f"[X] curl_cffi warm-up failed: {e}")
+            logger.error("[!] Continuing anyway, but expect 403 errors!")
+
     def _random_delay(self):
         """
         Longer random delay to bypass rate limiting
@@ -280,26 +415,24 @@ class AFAScraper(ScraperErrorMixin):
         base_delay = random.uniform(3.0, 6.0)
         jitter = random.uniform(0, 2.0)
         total_delay = base_delay + jitter
-        
-        logger.debug(f"⏱️  Random delay: {total_delay:.1f}s")
+
+        logger.debug(f"[TIMER]  Random delay: {total_delay:.1f}s")
         time.sleep(total_delay)
-    
+
     def _fetch_category_products(self, category_slug: str, page: int = 1) -> Optional[dict]:
         """
-        Отримати JSON з products для категорії з Shopify JSON API
-        ✨ IMPROVED: Покращене логування для логів та Google Sheets
+        Get JSON with products for category from Shopify JSON API
+         IMPROVED: Improved logging for logs and Google Sheets
 
         Args:
-            category_slug: Slug категорії (напр. "coffee-tables-by-acme")
-            page: Номер сторінки (default: 1)
+            category_slug: Category slug (e.g. "coffee-tables-by-acme")
+            page: Page number (default: 1)
 
         Returns:
-            JSON dict з products або None якщо помилка
+            JSON dict with products or None if error
         """
         url = f"{self.BASE_URL}/collections/{category_slug}/products.json"
         params = {'page': page}
-
-        # ✅ Headers для bypass Cloudflare
         headers = {
             'Accept': 'application/json, text/javascript, */*; q=0.01',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -307,7 +440,7 @@ class AFAScraper(ScraperErrorMixin):
             'X-Requested-With': 'XMLHttpRequest',
         }
 
-        # Retry loop з tracking
+        # Retry loop from tracking
         last_error = None
         last_status_code = None
 
@@ -331,88 +464,78 @@ class AFAScraper(ScraperErrorMixin):
                     )
 
                 response.raise_for_status()
-                
-                # ✅ NEW: Log успішний retry
                 if attempt > 0:
                     logger.info(
-                        f"✅ Retry SUCCESS - Category: '{category_slug}', "
+                        f"[DONE] Retry SUCCESS - Category: '{category_slug}', "
                         f"Page: {page} (succeeded on attempt {attempt + 1}/{self.retry_attempts})"
                     )
                     self.stats['successful_retries'] += 1
-                
+
                 return response.json()
 
             except Exception as e:
                 last_error = e
                 error_str = str(e)
-                
-                # Визначити HTTP status code
+
+                # Determine HTTP status code
                 status_code = None
                 for code in ["403", "401", "429", "500", "502", "503"]:
                     if code in error_str:
                         status_code = code
                         last_status_code = code
                         break
-                
-                # ✅ IMPROVED: Детальне логування в файл
                 if status_code:
                     logger.warning(
-                        f"⚠️  HTTP {status_code} - Category: '{category_slug}', "
+                        f"[!]  HTTP {status_code} - Category: '{category_slug}', "
                         f"Page: {page}, Attempt: {attempt + 1}/{self.retry_attempts}"
                     )
                 else:
                     logger.warning(
-                        f"⚠️  Request error - Category: '{category_slug}', "
+                        f"[!]  Request error - Category: '{category_slug}', "
                         f"Page: {page}, Attempt: {attempt + 1}/{self.retry_attempts}, "
                         f"Error: {error_str[:100]}"
                     )
-                
-                # ✅ IMPROVED: Log to Google Sheets з повним context
                 self.log_scraping_error(
                     error=e,
-                    url=url,  # ✨ URL для швидкого debugging
+                    url=url,  #  URL for quick debugging
                     context={
                         'method': '_fetch_category_products',
-                        'category_slug': category_slug,      # ✨ ДОДАНО
-                        'page': page,                         # ✨ ДОДАНО
-                        'attempt': f"{attempt + 1}/{self.retry_attempts}",  # ✨ ДОДАНО
+                        'category_slug': category_slug,
+                        'page': page,
+                        'attempt': f"{attempt + 1}/{self.retry_attempts}",
                         'status_code': status_code,
                         'session_type': self.session_type,
                         'impersonate': self.impersonate if self.session_type == 'curl_cffi' else 'N/A'
                     }
                 )
-                
-                # ✅ Exponential backoff для 403
                 if status_code == "403":
                     if attempt < self.retry_attempts - 1:
                         backoff_delay = 10 * (2 ** attempt)  # 10s, 20s, 40s
-                        logger.warning(f"   💤 Waiting {backoff_delay}s before retry (exponential backoff)...")
+                        logger.warning(f"   [wait] Waiting {backoff_delay}s before retry (exponential backoff)...")
                         time.sleep(backoff_delay)
                         continue
                     else:
                         logger.error(
-                            f"   ❌ Category '{category_slug}' page {page} FAILED "
+                            f"   [X] Category '{category_slug}' page {page} FAILED "
                             f"after {self.retry_attempts} attempts (HTTP {status_code})"
                         )
                         break
-                
-                # Для 401 немає сенсу retry
+
+                # if 401 no point retrying
                 if status_code == "401":
-                    logger.error(f"   ❌ HTTP 401 - authentication issue, stopping retries")
+                    logger.error(f"   [X] HTTP 401 - authentication issue, stopping retries")
                     break
-                
-                # Стандартний retry для non-403/401 errors
+
+                # Standard retry for non-403/401 errors
                 if attempt < self.retry_attempts - 1 and status_code not in ["403", "401"]:
                     time.sleep(5)
-
-        # ✅ IMPROVED: Фінальний log якщо не вдалося
         if last_error:
             logger.error(
-                f"❌ FINAL FAILURE - Category: '{category_slug}', Page: {page} - "
+                f"[X] FINAL FAILURE - Category: '{category_slug}', Page: {page} - "
                 f"gave up after {self.retry_attempts} attempts"
             )
-            
-            # ✨ NEW: Track failed category
+
+            #  NEW: Track failed category
             self.failed_categories_list.append({
                 'category': category_slug,
                 'page': page,
@@ -420,10 +543,10 @@ class AFAScraper(ScraperErrorMixin):
                 'status_code': last_status_code
             })
             self.stats['failed_categories'] += 1
-        
+
         self.stats['errors'] += 1
         return None
-    
+
     def _extract_products_from_json(self, json_data: dict, manufacturer_name: str) -> List[Dict[str, str]]:
         """
         Extracts products from Shopify JSON API response
@@ -463,60 +586,56 @@ class AFAScraper(ScraperErrorMixin):
 
     def _print_scraping_summary(self, all_products: List[Dict[str, str]]):
         """
-        Вивести детальну статистику scraping
-        ✨ NEW: Показує successful retries, failed categories, і детальний аналіз
-        
+        Print detailed scraping statistics
+         NEW: Shows successful retries, failed categories, and detailed analysis
+
         Args:
-            all_products: Список всіх зібраних products
+            all_products: List of all collected products
         """
         logger.info("")
         logger.info("="*70)
         logger.info("AFA SCRAPER SUMMARY")
         logger.info("="*70)
-        
-        # Основна статистика
-        logger.info(f"📊 STATISTICS:")
+
+        # Main statistics
+        logger.info(f"[DATA] STATISTICS:")
         logger.info(f"   Manufacturers processed: {self.stats['manufacturers_processed']}")
         logger.info(f"   Categories processed: {self.stats['categories_processed']}")
         logger.info(f"   Products collected: {len(all_products)}")
         logger.info(f"   Empty categories: {self.stats['empty_categories']}")
-        
+
         logger.info("")
-        logger.info(f"🔄 RETRIES:")
+        logger.info(f"[RETRY] RETRIES:")
         logger.info(f"   Total errors: {self.stats['errors']}")
         logger.info(f"   Successful retries: {self.stats['successful_retries']}")
         logger.info(f"   Failed categories: {self.stats['failed_categories']}")
-        
-        # ✅ Розрахувати success rate
         if self.stats['errors'] > 0:
             success_rate = (self.stats['successful_retries'] / self.stats['errors']) * 100
             logger.info(f"   Retry success rate: {success_rate:.1f}%")
-        
-        # ✅ Показати failed categories якщо є
         if self.failed_categories_list:
             logger.warning("")
-            logger.warning(f"⚠️  FAILED CATEGORIES ({len(self.failed_categories_list)}):")
-            
-            # Показати перші 15 failed categories
+            logger.warning(f"[!]  FAILED CATEGORIES ({len(self.failed_categories_list)}):")
+
+            # Show first 15 failed categories
             for i, fc in enumerate(self.failed_categories_list[:15], 1):
                 status = f"HTTP {fc['status_code']}" if fc['status_code'] else "Error"
                 logger.warning(
                     f"   {i}. '{fc['category']}' page {fc['page']} - "
                     f"{status}: {fc['error']}"
                 )
-            
-            # Якщо більше 15, показати скільки ще
+
+            # If more 15, show how many more
             if len(self.failed_categories_list) > 15:
                 remaining = len(self.failed_categories_list) - 15
                 logger.warning(f"   ... and {remaining} more failed categories")
-            
+
             logger.warning("")
-            logger.warning("💡 TIP: Check 'Scraping_Errors' sheet in Google Sheets for full details")
-            logger.warning("💡 TIP: Use grep 'FINAL FAILURE' in logs to see all failed categories")
+            logger.warning("[i] TIP: Check 'Scraping_Errors' sheet in Google Sheets for full details")
+            logger.warning("[i] TIP: Use grep 'FINAL FAILURE' in logs to see all failed categories")
         else:
             logger.info("")
-            logger.info("✅ No failed categories - all retries successful!")
-        
+            logger.info("[DONE] No failed categories - all retries successful!")
+
         logger.info("="*70)
 
     def scrape_category(self, category_slug: str, manufacturer_name: str, seen_skus: Set[str]) -> List[Dict[str, str]]:
@@ -533,7 +652,7 @@ class AFAScraper(ScraperErrorMixin):
         """
         category_products = []
         page = 1
-        
+
         while True:
             logger.debug(f"    Page {page}...")
 
@@ -578,8 +697,8 @@ class AFAScraper(ScraperErrorMixin):
             self._random_delay()
 
         return category_products
-    
-    def scrape_manufacturer(self, manufacturer_name: str, manufacturer_slug: str, 
+
+    def scrape_manufacturer(self, manufacturer_name: str, manufacturer_slug: str,
                             seen_skus: Set[str]) -> List[Dict[str, str]]:
         """
         Parses all categories of one manufacturer
@@ -598,94 +717,90 @@ class AFAScraper(ScraperErrorMixin):
 
         # Get a list of categories for this manufacturer
         categories = self.manufacturer_categories.get(manufacturer_slug, [])
-        
+
         if not categories:
             logger.warning(f"No categories found for {manufacturer_name} (slug: {manufacturer_slug})")
             return []
-        
+
         logger.info(f"Found {len(categories)} categories")
-        
+
         manufacturer_products = []
         start_time = datetime.now()
-        
+
         for idx, category_slug in enumerate(categories, 1):
             logger.info(f"\n  [{idx}/{len(categories)}] Category: {category_slug}")
-            
+
             # Scrape category
             category_products = self.scrape_category(category_slug, manufacturer_name, seen_skus)
-            
+
             if category_products:
                 manufacturer_products.extend(category_products)
-                logger.info(f"    ✓ Collected {len(category_products)} products")
+                logger.info(f"    [OK] Collected {len(category_products)} products")
                 self.stats['categories_processed'] += 1
             else:
                 logger.debug(f"    Empty category")
                 self.stats['empty_categories'] += 1
-            
+
             # Progress info every 5 categories
             if idx % 5 == 0 and idx < len(categories):
                 elapsed = (datetime.now() - start_time).total_seconds() / 60
                 speed = idx / elapsed if elapsed > 0 else 0
                 remaining = len(categories) - idx
                 eta = remaining / speed if speed > 0 else 0
-                
+
                 logger.info(f"\n  Progress:")
                 logger.info(f"     Categories: {idx}/{len(categories)} ({idx/len(categories)*100:.1f}%)")
                 logger.info(f"     Products: {len(manufacturer_products)}")
                 logger.info(f"     Speed: {speed:.1f} cat/min")
                 logger.info(f"     ETA: {eta:.1f} min\n")
-            
+
             # Delay between categories
             if idx < len(categories):
                 self._random_delay()
-        
+
         elapsed = (datetime.now() - start_time).total_seconds() / 60
-        logger.info(f"\n✓ Manufacturer {manufacturer_name} completed:")
+        logger.info(f"\n[OK] Manufacturer {manufacturer_name} completed:")
         logger.info(f"  Categories processed: {len(categories)}")
         logger.info(f"  Products collected: {len(manufacturer_products)}")
         logger.info(f"  Time: {elapsed:.1f} minutes")
-        
+
         self.stats['manufacturers_processed'] += 1
-        
+
         return manufacturer_products
-    
+
     def scrape_all_products(self) -> List[Dict[str, str]]:
         """Parses all products from all manufacturers"""
-        
+
         all_products = []
         seen_skus: Set[str] = set()
-        
+
         try:
             for manufacturer_name, manufacturer_slug in self.MANUFACTURER_SLUGS.items():
                 try:
                     products = self.scrape_manufacturer(
-                        manufacturer_name, 
-                        manufacturer_slug, 
+                        manufacturer_name,
+                        manufacturer_slug,
                         seen_skus
                     )
                     all_products.extend(products)
-                    
+
                 except Exception as e:
-                    # ✅ LOG ERROR
                     self.log_scraping_error(
                         error=e,
                         context={'manufacturer': manufacturer_name}
                     )
                     logger.error(f"Failed {manufacturer_name}: {e}")
                     continue
-                
+
                 time.sleep(3)
-        
+
         except Exception as e:
-            # ✅ LOG GLOBAL ERROR
             self.log_scraping_error(error=e, context={'stage': 'main'})
             raise
-        
-        # ✅ NEW: Print detailed summary
         self._print_scraping_summary(all_products)
-        
+
         return all_products
-    
+
     def get_stats(self) -> dict:
         """Returns statistics"""
         return self.stats.copy()
@@ -736,7 +851,7 @@ class AFAScraper(ScraperErrorMixin):
         # Test 2: Products JSON API (test category)
         try:
             logger.info("Testing products API...")
-            
+
             # Use the first category of the first manufacturer
             first_mfr_slug = list(self.MANUFACTURER_SLUGS.values())[0] if self.MANUFACTURER_SLUGS else None
             if first_mfr_slug and first_mfr_slug in self.manufacturer_categories:
@@ -773,7 +888,6 @@ class AFAScraper(ScraperErrorMixin):
 
         return results
 
-
 def scrape_afa(config: dict, error_logger=None) -> List[Dict[str, str]]:
     """Main function for parsing AFA Stores"""
     scraper = AFAScraper(config, error_logger=error_logger)
@@ -787,7 +901,7 @@ if __name__ == "__main__":
     import sys
     import argparse
     import yaml
-    
+
     print("="*60)
     print("AFA Stores Scraper - Standalone Mode")
     print("="*60)
@@ -798,40 +912,40 @@ if __name__ == "__main__":
         description='AFA Stores Scraper',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    
+
     parser.add_argument(
         '--test',
         action='store_true',
         help='Test connection only (diagnose 403 errors)'
     )
-    
+
     parser.add_argument(
         '--manufacturer',
         type=str,
         help='Scrape single manufacturer (e.g., "Steve Silver")'
     )
-    
+
     parser.add_argument(
         '--output',
         type=str,
         help='Output JSON file (default: afa_products_TIMESTAMP.json)'
     )
-    
+
     parser.add_argument(
         '--verbose',
         action='store_true',
         help='Enable verbose logging'
     )
-    
+
     parser.add_argument(
         '--config',
         type=str,
         default='config.yaml',
         help='Path to config.yaml (default: config.yaml)'
     )
-    
+
     args = parser.parse_args()
-    
+
     # Setup logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
@@ -842,28 +956,28 @@ if __name__ == "__main__":
 
     # Load config
     config_path = Path(args.config)
-    
+
     if not config_path.exists():
         print(f"\033[91m✗ Config file not found: {config_path}\033[0m")
         print("\nTrying to find config.yaml...")
-        
+
         # Try to find relative to the current file
         module_dir = Path(__file__).parent.parent.parent
         config_path = module_dir / 'config.yaml'
-        
+
         if not config_path.exists():
             print(f"\033[91m✗ Config not found at: {config_path}\033[0m")
             print("\nPlease specify config path with --config")
             sys.exit(1)
-    
-    print(f"\033[92m✓ Loading config: {config_path}\033[0m")
-    
+
+    print(f"\033[92m[OK] Loading config: {config_path}\033[0m")
+
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
-    
+
     # Get AFA config
     afa_config = config.get('scrapers', {}).get('afastores', {})
-    
+
     scraper_config = {
         'delay_min': afa_config.get('delay_min', 1.0),
         'delay_max': afa_config.get('delay_max', 2.0),
@@ -871,17 +985,17 @@ if __name__ == "__main__":
         'timeout': afa_config.get('timeout', 30),
         'proxies': None
     }
-    
+
     # Initialize error logger (optional)
     error_logger = None
-    
+
     try:
         from ..modules.error_logger import ErrorLogger
         from ..modules.google_sheets import GoogleSheetsClient
-        
+
         credentials_path = config.get('google', {}).get('service_account_path')
         sheet_id = config.get('main_sheet', {}).get('id')
-        
+
         if credentials_path and sheet_id:
             credentials_path = Path(credentials_path)
             if credentials_path.exists():
@@ -891,111 +1005,111 @@ if __name__ == "__main__":
                     sheet_id=sheet_id,
                     enabled=True
                 )
-                print(f"\033[92m✓ Error logger initialized\033[0m")
+                print(f"\033[92m[OK] Error logger initialized\033[0m")
     except Exception as e:
-        print(f"\033[93m⚠ Could not initialize error logger: {e}\033[0m")
-    
+        print(f"\033[93m[!] Could not initialize error logger: {e}\033[0m")
+
     # Create scraper
     print(f"\033[94mℹ Initializing AFA scraper...\033[0m")
-    
+
     scraper = AFAScraper(
         config=scraper_config,
         error_logger=error_logger
     )
-    
-    print(f"\033[92m✓ Scraper initialized (session: {scraper.session_type})\033[0m")
+
+    print(f"\033[92m[OK] Scraper initialized (session: {scraper.session_type})\033[0m")
     print()
-    
+
     # Execute command
-    
+
     if args.test:
         # TEST CONNECTION
         print("\033[94mℹ Testing connection to AFA Stores...\033[0m")
         print("="*60)
-        
+
         results = scraper.test_connection()
-        
+
         # Display results
         print(f"\nSession type: {results.get('session_type', 'unknown')}")
-        
+
         status = "\033[92m[OK]\033[0m" if results['homepage'] else "\033[91m[FAIL]\033[0m"
         print(f"Homepage: {status}")
-        
+
         status = "\033[92m[OK]\033[0m" if results['products_api'] else "\033[91m[FAIL]\033[0m"
         print(f"Products API: {status}")
-        
+
         status = "detected" if results['cloudflare'] else "not detected"
         print(f"Cloudflare: {status}")
-        
+
         status = "\033[91mYES\033[0m" if results['ip_blocked'] else "no"
         print(f"IP blocked: {status}")
-        
+
         print("\nDetails:")
         for detail in results.get('details', []):
             print(f"  - {detail}")
-        
+
         print("="*60)
-        
+
         # Summary
         if results['ip_blocked']:
-            print(f"\n\033[91m❌ IP BLOCKED (403 Forbidden)\033[0m")
+            print(f"\n\033[91m[X] IP BLOCKED (403 Forbidden)\033[0m")
             print(f"\033[94mℹ Possible solutions:\033[0m")
             print("  1. Use proxy (configure in config.yaml)")
             print("  2. Wait 24h for IP unblock")
             print("  3. Try from different network/VPS")
         elif results['homepage'] and results['products_api']:
-            print(f"\n\033[92m✓ Connection OK\033[0m")
+            print(f"\n\033[92m[OK] Connection OK\033[0m")
         elif results['cloudflare']:
-            print(f"\n\033[93m⚠️  Cloudflare detected but connection works\033[0m")
+            print(f"\n\033[93m[!]  Cloudflare detected but connection works\033[0m")
         else:
-            print(f"\n\033[91m❌ Connection failed\033[0m")
-        
+            print(f"\n\033[91m[X] Connection failed\033[0m")
+
     elif args.manufacturer:
 
         # SCRAPE ONE MANUFACTURER
         manufacturer_name = args.manufacturer
         manufacturer_slug = scraper.MANUFACTURER_SLUGS.get(manufacturer_name)
-        
+
         if not manufacturer_slug:
             print(f"\033[91m✗ Manufacturer not found: {manufacturer_name}\033[0m")
             print("\nAvailable manufacturers:")
             for name in scraper.MANUFACTURER_SLUGS.keys():
                 print(f"  - {name}")
             sys.exit(1)
-        
+
         print(f"\033[94mℹ Scraping manufacturer: {manufacturer_name}\033[0m")
         print("="*60)
-        
+
         seen_skus = set()
         products = scraper.scrape_manufacturer(
             manufacturer_name=manufacturer_name,
             manufacturer_slug=manufacturer_slug,
             seen_skus=seen_skus
         )
-        
+
         print("="*60)
-        print(f"\033[92m✓ Collected {len(products)} products from {manufacturer_name}\033[0m")
-        
+        print(f"\033[92m[OK] Collected {len(products)} products from {manufacturer_name}\033[0m")
+
         # Save if requested
         if args.output or not args.output:
             output_file = args.output or f"afa_{manufacturer_slug}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            
+
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(products, f, indent=2, ensure_ascii=False)
-            
-            print(f"\033[92m✓ Results saved to: {output_file}\033[0m")
-    
+
+            print(f"\033[92m[OK] Results saved to: {output_file}\033[0m")
+
     else:
 
         # SCRAPE ALL MANUFACTURERS
         print(f"\033[94mℹ Scraping all manufacturers...\033[0m")
         print("="*60)
-        
+
         products = scraper.scrape_all_products()
-        
+
         print("="*60)
-        print(f"\033[92m✓ Total products collected: {len(products)}\033[0m")
-        
+        print(f"\033[92m[OK] Total products collected: {len(products)}\033[0m")
+
         # Stats
         stats = scraper.get_stats()
         print("\nStatistics:")
@@ -1004,23 +1118,23 @@ if __name__ == "__main__":
         print(f"  Empty categories: {stats['empty_categories']}")
         print(f"  Unique products: {stats['unique_products']}")
         print(f"  Errors: {stats['errors']}")
-        
+
         # Save
         output_file = args.output or f"afa_products_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        
+
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(products, f, indent=2, ensure_ascii=False)
-        
-        print(f"\n\033[92m✓ Results saved to: {output_file}\033[0m")
-    
+
+        print(f"\n\033[92m[OK] Results saved to: {output_file}\033[0m")
+
     # Summary
     print()
     print("="*60)
     print(f"\033[92m [OK] COMPLETED\033[0m")
     print("="*60)
     print()
-    
+
     if error_logger:
         print(f"\033[94mℹ Errors logged to Google Sheets: Scraping_Errors\033[0m")
-    
+
     print()

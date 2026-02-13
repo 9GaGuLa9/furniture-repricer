@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Quick Algolia API Key Updater
-Швидке оновлення Algolia API ключа
+Quick update of the Algolia API key
 
 Usage:
     python update_algolia_key.py NEW_API_KEY_HERE
@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from datetime import datetime
 
-# Кольори
+# Colors
 GREEN = '\033[92m'
 RED = '\033[91m'
 YELLOW = '\033[93m'
@@ -33,7 +33,7 @@ def print_info(text):
     print(f"{BLUE}ℹ {text}{RESET}")
 
 def validate_api_key(key):
-    """Валідація API ключа"""
+    """API key validation"""
     if not key:
         return False, "Key is empty"
     

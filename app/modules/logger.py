@@ -47,7 +47,7 @@ def get_logger(name: str = "repricer", log_to_file: bool = True) -> logging.Logg
                 log_file = log_dir / f"repricer_{datetime.now().strftime('%Y-%m-%d')}.log"
                 
                 file_handler = logging.FileHandler(log_file, encoding='utf-8')
-                file_handler.setLevel(logging.DEBUG)  # В файл пишемо все
+                file_handler.setLevel(logging.DEBUG)  # We write everything in the file
                 
                 file_formatter = logging.Formatter(
                     '%(asctime)s | %(name)-15s | %(levelname)-8s | %(funcName)-20s | %(message)s',
@@ -102,7 +102,7 @@ def setup_logging(
     
     # Console handler with the specified level
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(numeric_level)  # ✅ Використати parameter!
+    console_handler.setLevel(numeric_level)
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
@@ -114,7 +114,7 @@ def setup_logging(
         log_file = log_path / f"repricer_{datetime.now().strftime('%Y-%m-%d')}.log"
         
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)  # Файл завжди детальний
+        file_handler.setLevel(logging.DEBUG)  # The file is always detailed
         
         file_formatter = logging.Formatter(
             '%(asctime)s | %(name)-15s | %(levelname)-8s | %(funcName)-20s | %(message)s',
@@ -161,7 +161,7 @@ if __name__ == "__main__":
     log_file = log_dir / f"repricer_{datetime.now().strftime('%Y-%m-%d')}.log"
     
     if log_file.exists():
-        print(f"\n📝 Log file: {log_file}")
+        print(f"\n[NOTE] Log file: {log_file}")
         print("\nLast 10 lines:")
         print("-" * 60)
         with open(log_file, 'r', encoding='utf-8') as f:

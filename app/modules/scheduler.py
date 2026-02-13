@@ -292,10 +292,10 @@ def create_scheduler_from_config(config: dict) -> Optional[RepricerScheduler]:
     Create a scheduler from the configuration
     
     Args:
-        config: Config dictionary (з ConfigManager або YAML)
+        config: Config dictionary (from ConfigManager or YAML)
     
     Returns:
-        RepricerScheduler instance або None якщо disabled
+        RepricerScheduler instance or None if disabled
     """
     # Check if enabled
     enabled = config.get('schedule_enabled', False)

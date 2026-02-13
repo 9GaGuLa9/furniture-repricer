@@ -516,7 +516,7 @@ class RepricerSheetsManager:
                     'competitors_sku': str(row[18]).strip() if len(row) > 18 else '',
                     
                     # Metadata
-                    'row_number': idx,  # Зkeep the line number for updating
+                    'row_number': idx,  # keep the line number for updating
                 }
                 
                 products.append(product)
@@ -529,15 +529,15 @@ class RepricerSheetsManager:
         self.logger.info(f"[OK] Loaded {len(products)} products from Google Sheets")
         
         if conversion_errors > 0:
-            self.logger.warning(f"⚠️ Had {conversion_errors} conversion errors")
+            self.logger.warning(f"[!] Had {conversion_errors} conversion errors")
         
         # DIAGNOSTICS: Show an example that everything is correct
         if products:
             sample = products[0]
-            self.logger.info("Sample product (after conversion):")
-            self.logger.info(f"  SKU: {sample['sku']}")
-            self.logger.info(f"  Our Cost: {sample['Our Cost']:.2f} (type: {type(sample['Our Cost']).__name__})")
-            self.logger.info(f"  Competitors_SKU: '{sample['competitors_sku']}'")
+            # self.logger.info("Sample product (after conversion):")
+            # self.logger.info(f"  SKU: {sample['sku']}")
+            # self.logger.info(f"  Our Cost: {sample['Our Cost']:.2f} (type: {type(sample['Our Cost']).__name__})")
+            # self.logger.info(f"  Competitors_SKU: '{sample['competitors_sku']}'")
             if sample.get('site4_url'):
                 self.logger.info(f"  Site4 URL: {sample['site4_url']}")
             if sample.get('site5_url'):
@@ -812,16 +812,19 @@ class RepricerSheetsManager:
             if skipped_count > 0:
                 self.logger.info(f"Skipped: {skipped_count} products (no SKU or no prices)")
             time.sleep(0.5)
-            
+
+            # Open the sheet ONCE
+            worksheet = self.client.open_sheet(sheet_id, sheet_name)
+
             # Google Sheets API allows up to 1000 updates at a time.
             # Break into chunks of 500.
             chunk_size = 500
             for i in range(0, len(all_updates), chunk_size):
                 chunk = all_updates[i:i+chunk_size]
-                self.client.batch_update(sheet_id, chunk, sheet_name)
-                
+                worksheet.batch_update(chunk, value_input_option='USER_ENTERED')
+
                 self.logger.info(f"  Updated chunk {i//chunk_size + 1}/{(len(all_updates)-1)//chunk_size + 1}")
-                
+
                 if i + chunk_size < len(all_updates):
                     time.sleep(1.0)  # Delay between chunks
             
@@ -852,7 +855,7 @@ class RepricerSheetsManager:
                 ws.update('A1', [headers])
                 time.sleep(0.5)
             
-            # Підготувати ВСІ рядки
+            # Prepare ALL lines
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
             all_rows = []
@@ -1150,7 +1153,7 @@ class RepricerSheetsManager:
             self.logger.info(f"  [ERROR] No match: {no_match_count}")
             
             if price_conversion_errors > 0:
-                self.logger.warning(f"  ⚠️  Price conversion errors: {price_conversion_errors}")
+                self.logger.warning(f"  [!]  Price conversion errors: {price_conversion_errors}")
             
             total_matched = matched_by_url + matched_by_id
             if len(scraped_products) > 0:
@@ -1401,7 +1404,7 @@ class RepricerSheetsManager:
                 row = [
                     product.get('id', ''),
                     product.get('url', ''),
-                    self._to_float(product.get('price', 0)),  # Конвертувати в float
+                    self._to_float(product.get('price', 0)),  # Convert to float
                     product.get('brand', ''),
                     product.get('scraped_at', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                 ]
@@ -1415,7 +1418,7 @@ class RepricerSheetsManager:
                 worksheet = self.client.open_sheet(sheet_id, emma_raw_sheet)
                 
                 # Expand the worksheet before writing
-                rows_needed = len(all_rows) + 1  # +1 для header
+                rows_needed = len(all_rows) + 1  # +1 for header
                 current_rows = worksheet.row_count
                 
                 if current_rows < rows_needed:
@@ -1431,7 +1434,7 @@ class RepricerSheetsManager:
                     time.sleep(0.3)
                 
                 # Determine the range
-                start_row = 2  # Після header
+                start_row = 2  # After header
                 end_row = start_row + len(all_rows) - 1
                 
                 # Update one range with USER_ENTERED for correct formatting

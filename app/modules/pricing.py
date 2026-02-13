@@ -18,12 +18,12 @@ class PricingEngine:
         }
     
     def calculate_floor_price(self, cost: float) -> float:
-        """Min price = cost × floor_coef"""
+        """Min price = cost x floor_coef"""
         floor_coef = self.coefficients.get('floor', 1.5)
         return cost * floor_coef
     
     def calculate_max_price(self, cost: float) -> float:
-        """Max price = cost × max_coef"""
+        """Max price = cost x max_coef"""
         max_coef = self.coefficients.get('max', 2.0)
         return cost * max_coef
     
@@ -191,7 +191,7 @@ class BatchPricingProcessor:
         return results
     
     def get_statistics(self, products: List[Dict]) -> Dict:
-        """Статистика по товарах"""
+        """Statistics on goods"""
         total = len(products)
         with_suggestions = [p for p in products if p.get('suggested_price')]
         

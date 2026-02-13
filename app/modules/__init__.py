@@ -1,5 +1,5 @@
 """
-Modules package для Furniture Repricer
+Modules package for Furniture Repricer
 UPDATED v5.0 - With ConfigManager, ErrorLogger support
 """
 

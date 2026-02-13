@@ -24,7 +24,7 @@ class ErrorLogger:
     - Scraper
     - Error Type
     - Error Message
-    - URL (якщо є)
+    - URL (if present)
     - Traceback
     
     Features:
@@ -95,7 +95,7 @@ class ErrorLogger:
                 ]
                 
                 worksheet.update('A1', [headers])
-                self.logger.info(f"✓ Created {self.error_sheet_name} sheet")
+                self.logger.info(f"[OK] Created {self.error_sheet_name} sheet")
         
         except Exception as e:
             self.logger.error(f"Failed to create {self.error_sheet_name} sheet: {e}")
@@ -124,7 +124,7 @@ class ErrorLogger:
             # Calculate cutoff date
             cutoff_date = datetime.now() - timedelta(days=self.retention_days)
             
-            # Find rows to delete (старіші за cutoff_date)
+            # Find rows to delete (older than cutoff_date)
             rows_to_delete = []
             
             for idx, row in enumerate(all_data[1:], start=2):  # Skip header (row 1)
@@ -139,7 +139,7 @@ class ErrorLogger:
                         rows_to_delete.append(idx)
                 
                 except (ValueError, IndexError):
-                    # Якщо не можемо parse timestamp - skip
+                    # If we can't parse timestamp - skip
                     continue
             
             # Delete rows if found
@@ -147,7 +147,7 @@ class ErrorLogger:
                 deleted_count = self._delete_rows_batch(worksheet, rows_to_delete)
                 
                 self.logger.info(
-                    f"🗑️  Cleaned up {deleted_count} old errors "
+                    f"[x]️  Cleaned up {deleted_count} old errors "
                     f"(older than {self.retention_days} days)"
                 )
                 
@@ -178,7 +178,7 @@ class ErrorLogger:
             return 0
         
         # Sort in reverse order to delete from bottom to top
-        # (щоб індекси не зміщувалися під час видалення)
+        # (so that indexes are not shifted during deletion)
         sorted_indices = sorted(row_indices, reverse=True)
         
         deleted = 0

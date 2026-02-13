@@ -1,7 +1,6 @@
 """
-1StopBedrooms Scraper - BRAND-BASED VERSION (OPTIMIZED!)
-Парсить ціни з 1stopbedrooms.com через GraphQL API по конкретних виробниках
-НАБАГАТО ШВИДШЕ ніж по категоріях - ~5-10 хвилин замість 30-40!
+1StopBedrooms Scraper
+Parses prices from 1stopbedrooms.com via GraphQL API for specific manufacturers
 """
 
 import requests
@@ -13,14 +12,11 @@ from ..modules.error_logger import ScraperErrorMixin
 
 logger = logging.getLogger("onestopbedrooms")
 
-
 class OneStopBedroomsScraper(ScraperErrorMixin):
-    """Scraper для 1stopbedrooms.com - збирає по виробниках"""
-    
+    """Scraper for 1stopbedrooms.com - collects by manufacturers"""
+
     BASE_URL = "https://www.1stopbedrooms.com"
     GRAPHQL_URL = "https://www.1stopbedrooms.com/graphql/1"
-    
-    # ✅ Цільові виробники (ті самі що в Coleman і AFA)
     BRANDS = [
         {"name": "Steve Silver", "slug": "brand/steve-silver"},
         {"name": "Martin Furniture", "slug": "brand/martin-furniture"},
@@ -28,7 +24,7 @@ class OneStopBedroomsScraper(ScraperErrorMixin):
         {"name": "Aspenhome", "slug": "brand/aspenhome"},
         {"name": "ACME", "slug": "brand/acme"},
     ]
-    
+
     GRAPHQL_QUERY = """
 fragment fragmentImage on catalogSearchImage {
     style
@@ -116,7 +112,7 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
     }
 }
 """
-    
+
     def __init__(self, config: dict, error_logger=None):
         self.config = config
         self.error_logger = error_logger
@@ -125,44 +121,45 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
         self.delay_max = config.get('delay_max', 3.0)
         self.retry_attempts = config.get('retry_attempts', 3)
         self.timeout = config.get('timeout', 20)
-        
+
         self.stats = {
             'total_products': 0,
             'unique_products': 0,
             'errors': 0,
             'brands_processed': 0,
-            'successful_retries': 0,      # ✨ NEW
-            'failed_requests': 0           # ✨ NEW
+            'successful_retries': 0,      #  NEW
+            'failed_requests': 0           #  NEW
         }
 
         # Track failed requests details
         self.failed_requests_list = []
-        
+
         logger.info("1StopBedrooms scraper initialized (brand-based - FAST!)")
-    
+
     def _random_delay(self):
-        """Затримка між запитами"""
+        """Delay between requests"""
         import random
         time.sleep(random.uniform(self.delay_min, self.delay_max))
-    
-    def _safe_request(self, payload: dict, headers: dict, 
+
+    def _safe_request(self, payload: dict, headers: dict,
                     brand_name: str = None, page: int = None) -> Optional[dict]:
         """
-        Виконує GraphQL запит з retry логікою
-        ✨ IMPROVED: Детальне логування для логів та Google Sheets
-        
+        Executes a GraphQL query with retry logic
+            IMPROVED: Detailed logging for logs and Google Sheets
+
         Args:
-            payload: GraphQL запит
+            payload: GraphQL query
             headers: HTTP headers
-            brand_name: Назва бренду (для логування)
-            page: Номер сторінки (для логування)
-        
+            brand_name: Brand name (for logging)
+            page: Page number (for logging)
+
         Returns:
-            JSON dict або None якщо помилка
+            JSON dict or None if error
         """
+
         last_error = None
         last_status_code = None
-        
+
         for attempt in range(self.retry_attempts):
             try:
                 response = requests.post(
@@ -172,29 +169,23 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
                     timeout=self.timeout
                 )
                 response.raise_for_status()
-                
-                # ✅ NEW: Log successful retry
                 if attempt > 0:
                     logger.info(
-                        f"✅ Retry SUCCESS - Brand: '{brand_name}', "
+                        f"[DONE] Retry SUCCESS - Brand: '{brand_name}', "
                         f"Page: {page} (succeeded on attempt {attempt + 1}/{self.retry_attempts})"
                     )
                     self.stats['successful_retries'] += 1
-                
+
                 return response.json()
-                
+
             except requests.exceptions.HTTPError as e:
                 last_error = e
                 status_code = e.response.status_code
                 last_status_code = status_code
-                
-                # ✅ IMPROVED: Детальне логування
                 logger.warning(
-                    f"⚠️  HTTP {status_code} - Brand: '{brand_name}', "
+                    f"[!]  HTTP {status_code} - Brand: '{brand_name}', "
                     f"Page: {page}, Attempt: {attempt + 1}/{self.retry_attempts}"
                 )
-                
-                # ✅ IMPROVED: Log to Google Sheets
                 self.log_scraping_error(
                     error=e,
                     url=self.GRAPHQL_URL,
@@ -207,18 +198,16 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
                         'query_type': 'GraphQL'
                     }
                 )
-                
+
             except Exception as e:
                 last_error = e
                 error_str = str(e)
-                
+
                 logger.warning(
-                    f"⚠️  Request error - Brand: '{brand_name}', "
+                    f"[!]  Request error - Brand: '{brand_name}', "
                     f"Page: {page}, Attempt: {attempt + 1}/{self.retry_attempts}, "
                     f"Error: {error_str[:100]}"
                 )
-                
-                # ✅ IMPROVED: Log to Google Sheets
                 self.log_scraping_error(
                     error=e,
                     url=self.GRAPHQL_URL,
@@ -230,18 +219,16 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
                         'error_type': type(e).__name__
                     }
                 )
-            
+
             # Retry delay
             if attempt < self.retry_attempts - 1:
                 time.sleep(5)
-        
-        # ✅ IMPROVED: Final failure log
         if last_error:
             logger.error(
-                f"❌ FINAL FAILURE - Brand: '{brand_name}', Page: {page} - "
+                f"[X] FINAL FAILURE - Brand: '{brand_name}', Page: {page} - "
                 f"gave up after {self.retry_attempts} attempts"
             )
-            
+
             # Track failed request
             self.failed_requests_list.append({
                 'brand': brand_name,
@@ -250,18 +237,18 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
                 'status_code': last_status_code
             })
             self.stats['failed_requests'] += 1
-        
+
         self.stats['errors'] += 1
         return None
-    
+
     def _extract_products(self, items: List[dict], seen_skus: set) -> List[Dict[str, str]]:
-        """Витягує товари зі списку items"""
+        """Extracts items from the items list"""
         products = []
-        
+
         for item in items:
             typename = item.get("__typename")
-            
-            # Визначаємо тип товару
+
+            # We determine the type of product
             if typename == "catalogSearchProductSimpleItem":
                 sub_items = [item]
             elif typename == "catalogSearchProductDynamicItem":
@@ -271,98 +258,94 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
             else:
                 logger.debug(f"Unknown product type: {typename}")
                 sub_items = []
-            
-            # Обробляємо кожен під-товар
+
+            # We process every sub-product
             for prod in sub_items:
                 if not prod:
                     continue
-                
+
                 sku = prod.get("sku")
                 if not sku or sku in seen_skus:
                     continue
-                
+
                 seen_skus.add(sku)
-                
-                # Витягуємо дані
+
+                # Extracting data
                 brand = prod.get("brand", {})
                 price_data = prod.get("price", {})
-                
+
                 products.append({
                     "sku": sku,
                     "brand": brand.get("name") if brand else None,
                     "price": price_data.get("finalPrice"),
                     "url": prod.get("url")
                 })
-        
+
         return products
-    
+
     def _print_scraping_summary(self, products: List[Dict[str, str]], seen_skus: set):
         """
-        Вивести детальну статистику scraping
-        ✨ NEW: Показує successful retries, failed requests, детальний аналіз
-        
+        Print detailed scraping statistics
+            NEW: Shows successful retries, failed requests, detailed analysis
+
         Args:
-            products: Список всіх зібраних products
-            seen_skus: Set унікальних SKU
+            products: List of all collected products
+            seen_skus: Set of unique SKUs
         """
         logger.info("")
         logger.info("="*70)
         logger.info("1STOPBEDROOMS SCRAPER SUMMARY")
         logger.info("="*70)
-        
-        # Основна статистика
-        logger.info(f"📊 STATISTICS:")
+
+        # Main statistics
+        logger.info(f"[DATA] STATISTICS:")
         logger.info(f"   Brands processed: {self.stats['brands_processed']}/{len(self.BRANDS)}")
         logger.info(f"   Total products: {len(products)}")
         logger.info(f"   Unique SKUs: {len(seen_skus)}")
-        
+
         logger.info("")
-        logger.info(f"🔄 RETRIES:")
+        logger.info(f"[RETRY] RETRIES:")
         logger.info(f"   Total errors: {self.stats['errors']}")
         logger.info(f"   Successful retries: {self.stats['successful_retries']}")
         logger.info(f"   Failed requests: {self.stats['failed_requests']}")
-        
-        # ✅ Розрахувати success rate
         if self.stats['errors'] > 0:
             success_rate = (self.stats['successful_retries'] / self.stats['errors']) * 100
             logger.info(f"   Retry success rate: {success_rate:.1f}%")
-        
-        # ✅ Показати failed requests якщо є
         if self.failed_requests_list:
             logger.warning("")
-            logger.warning(f"⚠️  FAILED REQUESTS ({len(self.failed_requests_list)}):")
-            
-            # Показати перші 10
+            logger.warning(f"[!]  FAILED REQUESTS ({len(self.failed_requests_list)}):")
+
+            # Show first 10
             for i, fr in enumerate(self.failed_requests_list[:10], 1):
                 status = f"HTTP {fr['status_code']}" if fr['status_code'] else "Error"
                 logger.warning(
                     f"   {i}. '{fr['brand']}' page {fr['page']} - "
                     f"{status}: {fr['error']}"
                 )
-            
+
             if len(self.failed_requests_list) > 10:
                 remaining = len(self.failed_requests_list) - 10
                 logger.warning(f"   ... and {remaining} more failed requests")
-            
+
             logger.warning("")
-            logger.warning("💡 TIP: Check 'Scraping_Errors' sheet in Google Sheets for full details")
-            logger.warning("💡 TIP: Use grep 'FINAL FAILURE' in logs to see all failed requests")
+            logger.warning("[i] TIP: Check 'Scraping_Errors' sheet in Google Sheets for full details")
+            logger.warning("[i] TIP: Use grep 'FINAL FAILURE' in logs to see all failed requests")
         else:
             logger.info("")
-            logger.info("✅ No failed requests - all retries successful!")
-        
+            logger.info("[DONE] No failed requests - all retries successful!")
+
         logger.info("="*70)
-    
+
     def scrape_brand(self, brand_info: dict, seen_skus: set) -> List[Dict[str, str]]:
-        """Парсить всі товари одного виробника"""
+        """Parses all products from one manufacturer"""
         brand_name = brand_info["name"]
         brand_slug = brand_info["slug"]
-        
+
         logger.info(f"Processing brand: {brand_name} ({brand_slug})")
-        
+
         brand_products = []
         page = 1
-        
+
         headers = {
             "Content-Type": "application/json",
             "Accept": "*/*",
@@ -370,8 +353,8 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
             "Referer": f"{self.BASE_URL}/{brand_slug}",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
-        
-        # Перший запит щоб дізнатись кількість сторінок
+
+        # First request to find out the number of pages
         payload = {
             "operationName": "getListingData",
             "query": self.GRAPHQL_QUERY,
@@ -383,105 +366,101 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
                     "page": 1,
                     "facet": []
                 },
-                "zipcode": "11229"  # Можна залишити або змінити
+                "zipcode": "11229"
             }
         }
-        
-        data = self._safe_request(payload, headers, 
+
+        data = self._safe_request(payload, headers,
                             brand_name=brand_name, page=1)
         if not data or "data" not in data:
             logger.error(f"Failed to get data for brand {brand_name}")
             return []
-        
+
         try:
             listing = data["data"]["listing"]["listingCategory"]
             max_page = listing["pages"]
             items_count = listing["itemsCount"]
-            
+
             logger.info(f"Brand {brand_name}: {items_count} items, {max_page} pages")
-            
-            # Витягти товари з першої сторінки
+
+            # Remove products from the first page
             items = listing.get("items", [])
             products = self._extract_products(items, seen_skus)
             brand_products.extend(products)
-            
+
             logger.info(f"  Page 1/{max_page}: found {len(products)} new products (total: {len(brand_products)})")
-            
+
         except KeyError as e:
             logger.error(f"Missing data in response: {e}")
             return []
-        
-        # Парсимо решту сторінок
+
+        # We will parse the rest of the pages.
         for page in range(2, max_page + 1):
             payload["variables"]["request"]["page"] = page
-            
+
             data = self._safe_request(payload, headers,
                             brand_name=brand_name, page=page)
-            
+
             if not data:
                 logger.warning(f"Failed to load page {page}, skipping...")
                 continue
-            
+
             try:
                 items = data["data"]["listing"]["listingCategory"]["items"]
                 products = self._extract_products(items, seen_skus)
                 brand_products.extend(products)
-                
+
                 logger.info(f"  Page {page}/{max_page}: found {len(products)} new products (total: {len(brand_products)})")
-                
+
             except KeyError as e:
                 logger.error(f"Missing data on page {page}: {e}")
                 continue
-            
-            # Затримка між сторінками
+
+            # Delay between pages
             if page < max_page:
                 self._random_delay()
-        
+
         logger.info(f"Brand {brand_name}: collected {len(brand_products)} unique products")
         self.stats['brands_processed'] += 1
-        
+
         return brand_products
-    
+
     def scrape_all_products(self) -> List[Dict[str, str]]:
-        """Парсить всі товари"""
-        
+        """Parses all products"""
+
         all_products = []
         seen_skus = set()
-        
+
         try:
             for idx, brand_info in enumerate(self.BRANDS, 1):
                 try:
                     products = self.scrape_brand(brand_info, seen_skus)
                     all_products.extend(products)
-                    
+
                 except Exception as e:
-                    # ✅ LOG ERROR
                     self.log_scraping_error(
                         error=e,
                         context={'brand': brand_info['name']}
                     )
                     logger.error(f"Failed {brand_info['name']}: {e}")
                     continue
-                
+
                 time.sleep(2)
-        
+
         except Exception as e:
-            # ✅ LOG GLOBAL ERROR
             self.log_scraping_error(error=e, context={'stage': 'main'})
             raise
-        
-        # ✅ NEW: Print detailed summary
         self._print_scraping_summary(all_products, seen_skus)
-        
+
         return all_products
-    
+
     def get_stats(self) -> dict:
-        """Повертає статистику"""
+        """Returns statistics"""
         return self.stats.copy()
 
 
 def scrape_onestopbedrooms(config: dict, error_logger=None) -> List[Dict[str, str]]:
-    """Головна функція для парсингу 1StopBedrooms"""
+    """Main function for parsing 1StopBedrooms"""
     scraper = OneStopBedroomsScraper(config, error_logger=error_logger)
     results = scraper.scrape_all_products()
     return results

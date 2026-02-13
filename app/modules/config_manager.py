@@ -86,15 +86,15 @@ class ConfigManager:
         self.logger.info("MERGING CONFIGURATION...")
         self.logger.info("="*60)
         
-        # 1. Hardcoded defaults (найнижчий пріоритет)
+        # 1. Hardcoded defaults (lowest priority)
         config = self._get_hardcoded_defaults()
         self.logger.info("[OK] Loaded hardcoded defaults")
         
-        # 2. YAML config (середній пріоритет)
+        # 2. YAML config (medium priority)
         try:
             yaml_config = self._load_yaml_config()
             
-            # Merge з YAML
+            # Merge from YAML
             for key, value in yaml_config.items():
                 if key != 'price_rules':  # Price rules separately
                     config[key] = value
@@ -126,7 +126,7 @@ class ConfigManager:
                     new_params.append(f"  {key}: {value}")
                     config[key] = value
             
-            # Лог змін
+            # Change log
             if overrides:
                 self.logger.info("[OK] Client OVERRIDES from Google Sheets:")
                 for override in overrides:
@@ -160,7 +160,7 @@ class ConfigManager:
     
     def _get_hardcoded_defaults(self) -> Dict[str, Any]:
         """
-        Hardcoded defaults (fallback якщо немає ні YAML, ні Google Sheets)
+        Hardcoded defaults (fallback if there is no YAML or Google Sheets)
         
         Returns:
             Default config
@@ -239,7 +239,7 @@ class ConfigManager:
         Check if the feature is enabled
         
         Args:
-            feature: Name feature (напр. 'scraper_emmamason', 'enable_price_history')
+            feature: Name feature (e.g. 'scraper_emmamason', 'enable_price_history')
         
         Returns:
             True if enabled
