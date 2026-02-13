@@ -993,7 +993,7 @@ if __name__ == "__main__":
         from ..modules.error_logger import ErrorLogger
         from ..modules.google_sheets import GoogleSheetsClient
 
-        credentials_path = config.get('google', {}).get('service_account_path')
+        credentials_path = config.get('google', {}).get('credentials_file')
         sheet_id = config.get('main_sheet', {}).get('id')
 
         if credentials_path and sheet_id:

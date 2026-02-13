@@ -9,10 +9,6 @@
 google_sheets:
   credentials_file: "credentials/service_account.json"
 
-# Google API Configuration (for error logging and other integrations)
-google:
-  service_account_path: "credentials/service_account.json"
-
 # Main sheet configuration
 main_sheet:
   id: "1MVUjRr6295RLsM8m_lHjKRZ_mIyalcLPVWTNos1oOM4"
