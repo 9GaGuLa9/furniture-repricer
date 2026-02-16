@@ -42,7 +42,7 @@ class AFAScraper(ScraperErrorMixin):
     PRODUCTS_PER_PAGE = 30  # AFA displays 30 products per page
     
     # Cookie caching for Playwright warm-up
-    COOKIE_FILE = Path('cookies_afa.json')
+    COOKIE_FILE = Path('app/data/cookies_afa.json')
     COOKIE_LIFETIME = 1800  # 30 minutes
 
 
