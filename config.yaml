@@ -18,8 +18,6 @@ main_sheet:
 run_enabled: true              # Autostart (TRUE/FALSE)
 test_mode: false               # Test mode without real changes
 dry_run: false                 # Show what will be done without execution
-log_level: "INFO"              # DEBUG/INFO/WARNING/ERROR
-verbose_logging: false         # Detailed logging for debugging
 
 # SCRAPERS CONTROL
 scraper_emmamason: true        # Scraping Emma Mason
@@ -33,7 +31,7 @@ site5_enabled: false           # Site 5 scraper
 
 # SCRAPING LIMITS
 max_products_emmamason: 50000          # Maximum products from Emma Mason (100-10000)
-max_products_per_competitor: 50000     # Maximum number of products from each competitor (50-5000)
+max_products_per_competitor: 50000     # Maximum number of products from each competitor (50-50000)
 scraping_timeout_minutes: 300          # Scraping timeout in minutes (10-300)
 
 # EMMA MASON SPECIFIC
@@ -42,8 +40,8 @@ emmamason_max_retries: 3       # Maximum number of retries for errors (1-10)
 # PRICING RULES
 enable_price_updates: true             # Should prices be updated at all?
 update_only_with_competitors: false    # Update only if there are competitors
-min_price_change_percent: 0.5          # Minimum price change for update in % (0-100)
-max_price_change_percent: 20           # Maximum price change per transaction in % (1-100)
+min_price_change_percent: 0.5          # Minimum price change for update in % (0-300)
+max_price_change_percent: 20           # Maximum price change per transaction in % (1-300)
 
 # Price calculation rules (can override from Google Sheets “Price_rules”)
 price_rules:
@@ -57,7 +55,7 @@ enable_competitors_sheet: true         # Update Competitors sheet
 save_scraping_errors: true             # Store scraping errors
 
 # VALIDATION
-validate_prices_range: false   # Check price range
+validate_prices_range: true   # Check price range
 min_valid_price: 10            # Minimum valid price in $ (1-1000)
 max_valid_price: 50000         # Maximum valid price in $ (100-100000)
 reject_zero_prices: true       # Reject zero prices
@@ -120,28 +118,22 @@ sku_matching:
   fuzzy_threshold: 0.85    # Threshold for fuzzy matching (0-1)
 
 # LOGGING
+log_retention_days: 10       # Keep log files for n days
 logging:
   level: "INFO"            # DEBUG/INFO/WARNING/ERROR
   directory: "logs"
   format: "%(asctime)s | %(name)-15s | %(levelname)-8s | %(funcName)-20s | %(message)s"
   date_format: "%Y-%m-%d %H:%M:%S"
-  retention_days: 10         # Keep logs for n days
-  rotate_daily: true         # Daily file rotation
-  max_file_size_mb: 100      # Maximum log file size (MB)
 
-# Google Sheets error loggin
+# Google Sheets error logging
+error_retention_days: 10     # Keep errors in Google Sheets for n days
 error_logging:
   # Enable error logging to Google Sheets
   enabled: true
-  
-  # Auto-cleanup settings
-  # How many days to keep errors in Google Sheets
-  retention_days: 10
-  
+
   # Run cleanup when ErrorLogger is initialized (recommended)
-  # This will delete errors older than retention_days
   cleanup_on_start: true
-  
+
   # Run cleanup after EVERY error is logged (NOT recommended - slow!)
   # Better to use cleanup_on_start for daily cleanup
   auto_cleanup: false

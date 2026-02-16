@@ -243,8 +243,8 @@ class GoogleSheetsConfigReader:
             'scraper_onestopbedrooms': True,
             'scraper_afastores': True,
             'delay_between_requests': 3,
-            'max_products_emmamason': 5000,
-            'max_products_per_competitor': 2000,
+            'max_products_emmamason': 50000,
+            'max_products_per_competitor': 50000,
             'scraping_timeout_minutes': 45,
             
             # Emma Mason
@@ -276,6 +276,10 @@ class GoogleSheetsConfigReader:
             # Notifications
             'telegram_enabled': True,
             'telegram_on_errors_only': False,
+
+            # Retention
+            'log_retention_days': 10,
+            'error_retention_days': 10,
         }
     
     def _get_default_price_rules(self) -> Dict[str, float]:

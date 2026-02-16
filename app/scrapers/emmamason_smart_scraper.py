@@ -279,7 +279,7 @@ class EmmaMasonSmartScraper:
 
             with sync_playwright() as p:
                 logger.info("Launching browser...")
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(headless=False)
 
                 # User agent for bypass detection
                 context = browser.new_context(
@@ -316,7 +316,7 @@ class EmmaMasonSmartScraper:
                     page.goto('https://emmamason.com/?q=furniture', timeout=40000)
 
                     logger.info("Waiting for search results...")
-                    page.wait_for_load_state('domcontentloaded', timeout=30000)
+                    page.wait_for_load_state('domcontentloaded', timeout=60000)
 
                     # Wait for Algolia to make a request
                     time.sleep(3)

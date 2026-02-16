@@ -61,20 +61,13 @@ class FurnitureRepricer:
 
         # STEP 4: ErrorLogger with auto-cleanup (ONLY AFTER runtime_config!)
         save_errors = self.runtime_config.get('save_scraping_errors', True)
-
-        # Get error_logging config (from Google Sheets or config.yaml)
-        error_config = self.runtime_config.get('error_logging', {})
-
-        save_errors = self.runtime_config.get('save_scraping_errors', True)
-
-        # Get error_logging config
         error_config = self.runtime_config.get('error_logging', {})
 
         self.error_logger = ErrorLogger(
             sheets_client=self.sheets_client,
             sheet_id=self.base_config['main_sheet']['id'],
             enabled=save_errors,
-            retention_days=error_config.get('retention_days', 30),
+            retention_days=self.runtime_config.get('error_retention_days', 10),
             cleanup_on_start=error_config.get('cleanup_on_start', True)
         )
 
@@ -245,7 +238,8 @@ class FurnitureRepricer:
             log_dir=log_config.get('directory', 'logs'),
             log_format=log_config.get('format'),
             date_format=log_config.get('date_format'),
-            level=log_config.get('level', 'INFO')
+            level=log_config.get('level', 'INFO'),
+            retention_days=self.base_config.get('log_retention_days', 10)
         )
 
     def _init_components(self):

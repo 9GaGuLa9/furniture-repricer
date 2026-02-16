@@ -171,7 +171,6 @@ class ConfigManager:
             'test_mode': False,
             'dry_run': False,
             'log_level': 'INFO',
-            'verbose_logging': False,
             
             # === SCRAPERS CONTROL ===
             'scraper_emmamason': True,
@@ -183,7 +182,7 @@ class ConfigManager:
             
             # === SCRAPING LIMITS ===
             'max_products_emmamason': 15000,
-            'max_products_per_competitor': 20000,
+            'max_products_per_competitor': 50000,
             'scraping_timeout_minutes': 120,
             
             # === EMMA MASON SPECIFIC ===
@@ -213,7 +212,7 @@ class ConfigManager:
             'rate_limit_delay_seconds': 60,
             
             # === SCHEDULE ===
-            'schedule_enabled': False,
+            'schedule_enabled': True,
             'schedule_times': '06:00,16:00,21:00',
             'schedule_timezone': 'America/New_York',
             
@@ -224,6 +223,10 @@ class ConfigManager:
             
             # === TESTING & DEBUG ===
             'test_sample_size': 100,
+
+            # === RETENTION ===
+            'log_retention_days': 10,
+            'error_retention_days': 10,
         }
     
     def _get_hardcoded_price_rules(self) -> Dict[str, float]:

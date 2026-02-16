@@ -4,7 +4,7 @@ ErrorLogger - Preserving scraping errors in Google Sheets
 Creates a sheet called "Scraping_Errors" and records all errors with timestamp,
 scraper name, error message, traceback, and URL if available.
 
-✨ NEW: Auto-cleanup of old errors based on retention_days setting
+Auto-cleanup of old errors based on retention_days setting
 """
 
 import traceback
