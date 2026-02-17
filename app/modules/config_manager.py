@@ -227,6 +227,7 @@ class ConfigManager:
             # === RETENTION ===
             'log_retention_days': 10,
             'error_retention_days': 10,
+            'history_retention_days': 15,
         }
     
     def _get_hardcoded_price_rules(self) -> Dict[str, float]:

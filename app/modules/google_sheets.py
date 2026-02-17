@@ -5,7 +5,7 @@ Google Sheets API client for Furniture Repricer
 import gspread
 from google.oauth2.service_account import Credentials
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
@@ -833,7 +833,98 @@ class RepricerSheetsManager:
             self.logger.warning("No updates to perform!")
         
         return updated_count
-    
+
+    def cleanup_price_history(self, retention_days: int = 15) -> int:
+        """
+        Delete Price_History rows older than retention_days.
+        Timestamp format expected in column A: 'YYYY-MM-DD HH:MM:SS'
+
+        Args:
+            retention_days: Number of days to keep (default: 15)
+
+        Returns:
+            Number of deleted rows
+        """
+        try:
+            sheet_id = self.config['main_sheet']['id']
+            history_name = 'Price_History'
+
+            if not self.client.worksheet_exists(sheet_id, history_name):
+                self.logger.debug("Price_History sheet does not exist — nothing to clean up")
+                return 0
+
+            worksheet = self.client.open_sheet(sheet_id, history_name)
+            all_data = worksheet.get_all_values()
+
+            if len(all_data) <= 1:  # Only header or empty
+                self.logger.debug("Price_History is empty — nothing to clean up")
+                return 0
+
+            cutoff_date = datetime.now() - timedelta(days=retention_days)
+
+            rows_to_delete = []
+            for idx, row in enumerate(all_data[1:], start=2):  # Skip header row 1
+                if not row or not row[0]:
+                    continue
+                try:
+                    row_timestamp = datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S')
+                    if row_timestamp < cutoff_date:
+                        rows_to_delete.append(idx)
+                except (ValueError, IndexError):
+                    continue
+
+            if not rows_to_delete:
+                self.logger.debug(
+                    f"No Price_History rows older than {retention_days} days"
+                )
+                return 0
+
+            # Delete from bottom to top so indices stay valid
+            deleted = self._delete_rows_batch(worksheet, rows_to_delete)
+
+            self.logger.info(
+                f"[CLEANUP] Price_History: deleted {deleted} rows "
+                f"(older than {retention_days} days)"
+            )
+            return deleted
+
+        except Exception as e:
+            self.logger.error(f"Failed to cleanup Price_History: {e}")
+            return 0
+
+    def _delete_rows_batch(self, worksheet, row_indices: list) -> int:
+        """
+        Delete multiple rows efficiently (bottom to top).
+
+        Args:
+            worksheet: gspread Worksheet instance
+            row_indices: List of 1-indexed row numbers to delete
+
+        Returns:
+            Number of deleted rows
+        """
+        if not row_indices:
+            return 0
+
+        sorted_indices = sorted(row_indices, reverse=True)
+        deleted = 0
+        batch_size = 100
+
+        try:
+            for i in range(0, len(sorted_indices), batch_size):
+                batch = sorted_indices[i:i + batch_size]
+                for row_idx in batch:
+                    worksheet.delete_rows(row_idx)
+                    deleted += 1
+                # Small delay between batches to avoid rate limiting
+                if i + batch_size < len(sorted_indices):
+                    time.sleep(1)
+            return deleted
+
+        except Exception as e:
+            self.logger.error(f"Failed to delete rows batch: {e}")
+            return deleted
+
     def batch_add_to_history(self, history_records: List[Dict]) -> int:
         """
         TRUE Batch recording Price History with auto-expand

@@ -169,6 +169,7 @@ logging:
 # ============================================================
 # ErrorLogger is initialized once at startup — changes require restart
 error_retention_days: 10       # Keep errors in Sheets for n days  # need restart
+history_retention_days: 15     # Keep Price_History rows for n days # need restart
 error_logging:
   enabled: true                #                                    # need restart
   cleanup_on_start: true       #                                    # need restart

@@ -279,7 +279,7 @@ class EmmaMasonSmartScraper:
 
             with sync_playwright() as p:
                 logger.info("Launching browser...")
-                browser = p.chromium.launch(headless=False)
+                browser = p.chromium.launch(headless=True)
 
                 # User agent for bypass detection
                 context = browser.new_context(

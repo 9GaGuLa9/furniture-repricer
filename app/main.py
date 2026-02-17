@@ -61,6 +61,8 @@ class FurnitureRepricer:
 
         # STEP 4: ErrorLogger with auto-cleanup (ONLY AFTER runtime_config!)
         save_errors = self.runtime_config.get('save_scraping_errors', True)
+
+        # Get error_logging config
         error_config = self.runtime_config.get('error_logging', {})
 
         self.error_logger = ErrorLogger(
@@ -79,6 +81,16 @@ class FurnitureRepricer:
                 self.logger.info(f"[x]️  Cleaned up {stats['errors_cleaned']} old errors")
         else:
             self.logger.info("Error logging: ✗ disabled")
+
+        # STEP 4b: Price_History cleanup
+        if self.runtime_config.get('enable_price_history', True):
+            history_retention = self.runtime_config.get('history_retention_days', 30)
+            deleted = self.sheets_manager.cleanup_price_history(history_retention)
+            self.logger.info(
+                f"Price_History: [OK] cleanup done (retention: {history_retention} days"
+                + (f", deleted {deleted} rows" if deleted > 0 else ", nothing to delete")
+                + ")"
+            )
 
         # STEP 5: Validate the configuration
         errors = self.config_manager.validate()
