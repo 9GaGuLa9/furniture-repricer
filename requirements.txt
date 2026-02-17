@@ -1,35 +1,70 @@
-# Furniture Repricer - Requirements
-# Updated with Scheduler support
+# Installation:
+#   pip install --upgrade pip
+#   pip install -r requirements.txt
 
-# Core dependencies
+# CORE - Google Sheets Integration
+
 gspread==5.12.0
 google-auth==2.23.4
 google-auth-oauthlib==1.1.0
 google-auth-httplib2==0.1.1
 
-# Web scraping
+# WEB SCRAPING - HTTP Clients
+# Primary: curl-cffi (best Cloudflare bypass)
+curl-cffi==0.6.2
+
+# Fallback: cloudscraper
+cloudscraper==1.2.71
+
+# Standard HTTP library
 requests==2.31.0
+
+# WEB SCRAPING - HTML Parsing
 beautifulsoup4==4.12.2
 lxml==5.2.0
 
-# Cloudflare bypass (choose one or both)
-curl-cffi==0.6.2         # Recommended for best results
-cloudscraper==1.2.71     # Fallback option
-
-# Data processing
+# DATA PROCESSING
 pandas==2.3.0
-openpyxl==3.1.2          # For Excel file operations
-python-docx==1.1.0       # For Word documents
 
-# YAML config
+# Excel support (if needed)
+openpyxl==3.1.2
+
+# CONFIGURATION
 PyYAML==6.0.1
-
-# Environment variables
 python-dotenv==1.2.1
 
-# ✅ NEW: Scheduler dependencies
-schedule==1.2.0          # Job scheduling
-pytz==2024.1             # Timezone support
+# SCHEDULER - Automatic Execution
+schedule==1.2.0          # Job scheduling library
+pytz==2024.1             # Timezone support for accurate scheduling
 
-# Optional: Telegram notifications
-# python-telegram-bot==20.7  # Uncomment if using Telegram
+# BROWSER AUTOMATION (Optional - for Algolia key refresh)
+playwright==1.40.0
+# After install run: playwright install chromium
+
+# NOTIFICATIONS (Optional)
+# python-telegram-bot==20.7
+
+# UTILITY LIBRARIES
+# For date/time handling
+python-dateutil==2.8.2
+
+# For retry logic
+tenacity==8.2.3
+
+# NOTES:
+
+# 1. curl-cffi requires system dependencies:
+#    - Ubuntu/Debian: sudo apt install build-essential libssl-dev
+#
+# 2. For production VPS:
+#    - Use Python 3.11+ for best compatibility
+#    - Install in virtual environment: python3 -m venv venv
+#    - Activate before install: source venv/bin/activate
+#
+# 3. Optional packages:
+#    - Playwright: Only if using browser-based scraping
+#    - Telegram: Only if notifications enabled
+#
+# 4. Testing installation:
+#    python -c "import gspread, curl_cffi, schedule, pytz; print('✅ OK')"
+

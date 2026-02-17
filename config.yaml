@@ -2,24 +2,36 @@
 #
 # USING ConfigManager:
 # - This file contains DEFAULTS
-# - Google Sheets “Config” can override any settings
+# - Google Sheets "Config" can override runtime settings
 # - Priority: Google Sheets > config.yaml > hardcoded defaults
+#
+# RESTART POLICY:
+#   [need restart]   - change takes effect only after restarting the service
+#   [no restart]     - change can be made via Google Sheets "Config" sheet at runtime;
+#                      config.yaml changes still require restart
 
-# GOOGLE SHEETS
+# ============================================================
+# GOOGLE SHEETS                                [need restart]
+# ============================================================
+# GoogleSheetsClient is initialized once at startup
 google_sheets:
-  credentials_file: "credentials/service_account.json"
+  credentials_file: "credentials/service_account.json"  # need restart
 
 # Main sheet configuration
-main_sheet:
+main_sheet:                        # need restart
   id: "1MVUjRr6295RLsM8m_lHjKRZ_mIyalcLPVWTNos1oOM4"
   name: "Data"
 
-# SYSTEM
+# ============================================================
+# SYSTEM                                       [no restart]
+# ============================================================
 run_enabled: true              # Autostart (TRUE/FALSE)
 test_mode: false               # Test mode without real changes
 dry_run: false                 # Show what will be done without execution
 
-# SCRAPERS CONTROL
+# ============================================================
+# SCRAPERS CONTROL                             [no restart]
+# ============================================================
 scraper_emmamason: true        # Scraping Emma Mason
 scraper_coleman: true          # Scraping Coleman Furniture
 scraper_onestopbedrooms: true  # Scraping 1StopBedrooms
@@ -29,111 +41,135 @@ scraper_afastores: true        # Scraping AFA Stores
 site4_enabled: false           # Site 4 scraper
 site5_enabled: false           # Site 5 scraper
 
-# SCRAPING LIMITS
-max_products_emmamason: 50000          # Maximum products from Emma Mason (100-10000)
+# ============================================================
+# SCRAPING LIMITS                              [no restart]
+# ============================================================
+max_products_emmamason: 50000          # Maximum products from Emma Mason (100-50000)
 max_products_per_competitor: 50000     # Maximum number of products from each competitor (50-50000)
 scraping_timeout_minutes: 300          # Scraping timeout in minutes (10-300)
 
 # EMMA MASON SPECIFIC
 emmamason_max_retries: 3       # Maximum number of retries for errors (1-10)
 
-# PRICING RULES
+# ============================================================
+# PRICING RULES                                [no restart]
+# ============================================================
 enable_price_updates: true             # Should prices be updated at all?
 update_only_with_competitors: false    # Update only if there are competitors
 min_price_change_percent: 0.5          # Minimum price change for update in % (0-300)
 max_price_change_percent: 20           # Maximum price change per transaction in % (1-300)
 
-# Price calculation rules (can override from Google Sheets “Price_rules”)
+# Price calculation rules (can override from Google Sheets "Price_rules")
 price_rules:
   floor_rate: 1.5              # Min price = Our Cost * 1.5
   below_competitor: 1.0        # $1 lower than the competitor
   max_rate: 2.0                # Maximum price = Our Cost * 2.0
 
-# DATA & HISTORY
+# ============================================================
+# DATA & HISTORY                               [no restart]
+# ============================================================
 enable_price_history: true             # Record the history of price changes
 enable_competitors_sheet: true         # Update Competitors sheet
 save_scraping_errors: true             # Store scraping errors
 
-# VALIDATION
-validate_prices_range: true   # Check price range
+# ============================================================
+# VALIDATION                                   [no restart]
+# ============================================================
+validate_prices_range: true    # Check price range
 min_valid_price: 10            # Minimum valid price in $ (1-1000)
 max_valid_price: 50000         # Maximum valid price in $ (100-100000)
 reject_zero_prices: true       # Reject zero prices
 
-# PERFORMANCE
+# ============================================================
+# PERFORMANCE                                  [no restart]
+# ============================================================
 batch_size_sheets_update: 500  # Batch size for Google Sheets (100-1000)
 max_concurrent_requests: 5     # Maximum number of parallel requests (1-20)
 retry_on_rate_limit: true      # Repeat at rate limit
 rate_limit_delay_seconds: 60   # Delay at rate limit in seconds (30-300)
 
-# SCHEDULE
-schedule_enabled: true                # Enable autostart schedule
-schedule_times: "06:00,16:00,21:00"    # Start time in hours and minutes (HH:MM,HH:MM)
-schedule_timezone: "America/New_York"  # Time zone
+# ============================================================
+# SCHEDULE                                     [need restart]
+# ============================================================
+# Scheduler is initialized once at startup — changes require restart
+schedule_enabled: true                # Enable autostart schedule        # need restart
+schedule_times: "06:00,16:00,21:00"   # Start times (HH:MM,HH:MM)       # need restart
+schedule_timezone: "America/New_York" # Time zone                        # need restart
 
-# NOTIFICATIONS
-telegram_enabled: false        # Send Telegram messages
-telegram_on_errors_only: false # Only in case of errors
-telegram_chat_id: ""           # Telegram chat ID (numeric value)
-telegram_bot_token: ""         # Bot token (from environment or here)
+# ============================================================
+# NOTIFICATIONS                                [need restart]
+# ============================================================
+# Telegram bot is initialized once at startup
+telegram_enabled: false        # Send Telegram messages                  # need restart
+telegram_on_errors_only: false # Only in case of errors                  # need restart
+telegram_chat_id: ""           # Telegram chat ID (numeric value)        # need restart
+telegram_bot_token: ""         # Bot token (from environment or here)    # need restart
 
-# TESTING & DEBUG
+# ============================================================
+# TESTING & DEBUG                              [no restart]
+# ============================================================
 test_sample_size: 100          # Number of items for testing (10-1000)
 
-# SCRAPERS (detailed settings)
+# ============================================================
+# SCRAPERS detailed settings                   [need restart]
+# ============================================================
+# Read from base_config (raw YAML) at startup — changes require restart
 scrapers:
   emmamason:
     enabled: true
-    delay_min: 2.0
-    delay_max: 5.0
-    retry_attempts: 3
-    timeout: 45
-  
+    delay_min: 2.0             # need restart
+    delay_max: 5.0             # need restart
+    retry_attempts: 3          # need restart
+    timeout: 45                # need restart
+
   coleman:
     enabled: true
-    delay_min: 0.5
-    delay_max: 1.5
-    retry_attempts: 3
-    timeout: 20
-  
+    delay_min: 0.5             # need restart
+    delay_max: 1.5             # need restart
+    retry_attempts: 3          # need restart
+    timeout: 20                # need restart
+
   onestopbedrooms:
     enabled: true
-    delay_min: 1.0
-    delay_max: 3.0
-    retry_attempts: 3
-    timeout: 20
-  
+    delay_min: 1.0             # need restart
+    delay_max: 3.0             # need restart
+    retry_attempts: 3          # need restart
+    timeout: 20                # need restart
+
   afa:
     enabled: true
-    delay_min: 3.0
-    delay_max: 7.0
-    retry_attempts: 2
-    timeout: 30
+    delay_min: 3.0             # need restart
+    delay_max: 7.0             # need restart
+    retry_attempts: 2          # need restart
+    timeout: 30                # need restart
 
-# SKU MATCHING
+# ============================================================
+# SKU MATCHING                                 [need restart]
+# ============================================================
+# SKUMatcher is initialized once at startup — changes require restart
 sku_matching:
-  split_delimiter: ";"     # Separator for multiple SKUs
-  case_sensitive: false    # Case sensitivity
-  strategy: "exact"        # “exact” or “fuzzy” (fuzzy - similarity SKU)
-  fuzzy_threshold: 0.85    # Threshold for fuzzy matching (0-1)
+  split_delimiter: ";"         # Separator for multiple SKUs  # need restart
+  case_sensitive: false        # Case sensitivity             # need restart
+  strategy: "exact"            # "exact" or "fuzzy"           # need restart
+  fuzzy_threshold: 0.85        # Threshold for fuzzy (0-1)   # need restart
 
-# LOGGING
-log_retention_days: 10       # Keep log files for n days
+# ============================================================
+# LOGGING                                      [need restart]
+# ============================================================
+# Logger is configured once at startup — changes require restart
+log_retention_days: 10         # Keep log files for n days   # need restart
 logging:
-  level: "INFO"            # DEBUG/INFO/WARNING/ERROR
-  directory: "logs"
+  level: "INFO"                # DEBUG/INFO/WARNING/ERROR    # need restart
+  directory: "logs"            #                             # need restart
   format: "%(asctime)s | %(name)-15s | %(levelname)-8s | %(funcName)-20s | %(message)s"
   date_format: "%Y-%m-%d %H:%M:%S"
 
-# Google Sheets error logging
-error_retention_days: 10     # Keep errors in Google Sheets for n days
+# ============================================================
+# GOOGLE SHEETS ERROR LOGGING                  [need restart]
+# ============================================================
+# ErrorLogger is initialized once at startup — changes require restart
+error_retention_days: 10       # Keep errors in Sheets for n days  # need restart
 error_logging:
-  # Enable error logging to Google Sheets
-  enabled: true
-
-  # Run cleanup when ErrorLogger is initialized (recommended)
-  cleanup_on_start: true
-
-  # Run cleanup after EVERY error is logged (NOT recommended - slow!)
-  # Better to use cleanup_on_start for daily cleanup
-  auto_cleanup: false
+  enabled: true                #                                    # need restart
+  cleanup_on_start: true       #                                    # need restart
+  auto_cleanup: false          #                                    # need restart

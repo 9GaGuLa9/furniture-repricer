@@ -28,9 +28,6 @@ def cleanup_old_logs(log_dir: str, retention_days: int = 10) -> int:
         if not log_path.exists():
             return 0
         
-        # Calculate cutoff date
-        cutoff_date = datetime.now() - timedelta(days=retention_days)
-        
         deleted_count = 0
         deleted_files = []
         
@@ -39,10 +36,13 @@ def cleanup_old_logs(log_dir: str, retention_days: int = 10) -> int:
             try:
                 # Get file modification time
                 file_mtime = datetime.fromtimestamp(log_file.stat().st_mtime)
-                
-                # Delete if older than retention_days
-                if file_mtime < cutoff_date:
-                    file_age_days = (datetime.now() - file_mtime).days
+
+                # Compare integer days to avoid microsecond precision issues.
+                # retention_days=10 means: delete files OLDER THAN 10 days (age > 10).
+                # A file exactly 10 days old is kept.
+                file_age_days = (datetime.now() - file_mtime).days
+
+                if file_age_days > retention_days:
                     log_file.unlink()
                     deleted_count += 1
                     deleted_files.append(f"{log_file.name} ({file_age_days} days old)")

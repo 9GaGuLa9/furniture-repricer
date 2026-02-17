@@ -64,7 +64,7 @@ class AFAScraper(ScraperErrorMixin):
         self.delay_min = config.get('delay_min', 1.0)
         self.delay_max = config.get('delay_max', 2.0)
         self.retry_attempts = config.get('retry_attempts', 3)
-        self.timeout = config.get('timeout', 30)
+        self.timeout = config.get('timeout', 40)
         self.proxies = config.get('proxies', None)
 
         self.stats = {
@@ -186,7 +186,7 @@ class AFAScraper(ScraperErrorMixin):
                     test_resp = curl_requests.get(
                         test_url,
                         impersonate=browser,
-                        timeout=10,
+                        timeout=20,
                         proxies=self.proxies
                     )
 
@@ -305,7 +305,7 @@ class AFAScraper(ScraperErrorMixin):
                 page.goto(self.BASE_URL, wait_until='domcontentloaded', timeout=60000)
                 
                 logger.info("  -> Waiting for Cloudflare challenge...")
-                time.sleep(5)
+                time.sleep(7)
                 
                 title = page.title()
                 logger.info(f"  -> Page loaded: {title[:50]}")
@@ -399,7 +399,7 @@ class AFAScraper(ScraperErrorMixin):
                 logger.info(f"[OK] Session warmed up: {response.status_code}")
                 logger.info(f"   Cookies count: {len(self.scraper.cookies)}")
 
-            time.sleep(3)
+            time.sleep(5)
 
         except Exception as e:
             logger.error(f"[X] curl_cffi warm-up failed: {e}")
@@ -422,7 +422,7 @@ class AFAScraper(ScraperErrorMixin):
     def _fetch_category_products(self, category_slug: str, page: int = 1) -> Optional[dict]:
         """
         Get JSON with products for category from Shopify JSON API
-         IMPROVED: Improved logging for logs and Google Sheets
+            IMPROVED: Improved logging for logs and Google Sheets
 
         Args:
             category_slug: Category slug (e.g. "coffee-tables-by-acme")
@@ -792,7 +792,7 @@ class AFAScraper(ScraperErrorMixin):
                     logger.error(f"Failed {manufacturer_name}: {e}")
                     continue
 
-                time.sleep(3)
+                time.sleep(4)
 
         except Exception as e:
             self.log_scraping_error(error=e, context={'stage': 'main'})
@@ -982,7 +982,7 @@ if __name__ == "__main__":
         'delay_min': afa_config.get('delay_min', 1.0),
         'delay_max': afa_config.get('delay_max', 2.0),
         'retry_attempts': afa_config.get('max_retries', 3),
-        'timeout': afa_config.get('timeout', 30),
+        'timeout': afa_config.get('timeout', 40),
         'proxies': None
     }
 

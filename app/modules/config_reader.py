@@ -59,7 +59,7 @@ class GoogleSheetsConfigReader:
                 param_name = row[0].strip()
                 param_value = row[1].strip() if len(row) > 1 else ""
                 
-                if not param_name or param_name.startswith("==="):
+                if not param_name or param_name.startswith("-==="):
                     continue  # Skip empty lines and separators
                 
                 # Convert values
@@ -242,14 +242,11 @@ class GoogleSheetsConfigReader:
             'scraper_coleman': True,
             'scraper_onestopbedrooms': True,
             'scraper_afastores': True,
-            'delay_between_requests': 3,
             'max_products_emmamason': 50000,
             'max_products_per_competitor': 50000,
             'scraping_timeout_minutes': 45,
             
             # Emma Mason
-            'emmamason_target_brands': 'ALL',
-            'emmamason_country_code': 'US',
             'emmamason_max_retries': 3,
             
             # Pricing

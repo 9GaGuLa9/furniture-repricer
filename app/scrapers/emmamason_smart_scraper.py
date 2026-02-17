@@ -313,7 +313,7 @@ class EmmaMasonSmartScraper:
                     logger.info("Method 1: Loading search URL directly...")
 
                     # Load page with search query
-                    page.goto('https://emmamason.com/?q=furniture', timeout=40000)
+                    page.goto('https://emmamason.com/?q=furniture', timeout=60000)
 
                     logger.info("Waiting for search results...")
                     page.wait_for_load_state('domcontentloaded', timeout=60000)
@@ -409,7 +409,7 @@ class EmmaMasonSmartScraper:
                         try:
                             logger.debug(f"Trying: {url}")
                             page.goto(url, timeout=30000)
-                            page.wait_for_load_state('domcontentloaded', timeout=20000)
+                            page.wait_for_load_state('domcontentloaded', timeout=60000)
                             time.sleep(3)
 
                             if api_key:
