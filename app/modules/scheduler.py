@@ -46,6 +46,9 @@ class RepricerScheduler:
         self.running = False
         self.timeout_seconds = int(timeout_hours * 3600)
         
+        config_loader: Optional[Callable[[], dict]] = None
+        self.config_loader = config_loader
+        
         # Validate timezone
         try:
             self.timezone = pytz.timezone(timezone)
@@ -233,6 +236,8 @@ class RepricerScheduler:
                 # Every hour, log next runs
                 current_time = self._get_current_time()
                 if current_time.minute == 0:
+                    if self.config_loader:
+                        self._reload_config()
                     self._log_status()
         
         except KeyboardInterrupt:

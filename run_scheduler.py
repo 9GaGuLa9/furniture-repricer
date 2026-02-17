@@ -155,9 +155,9 @@ def main():
         
         # Check if scheduler enabled
         if not config.get('schedule_enabled', False):
-            daemon_logger.error("Scheduler is DISABLED in config!")
-            daemon_logger.error("Set schedule_enabled = TRUE in Config sheet or config.yaml")
-            sys.exit(1)
+            daemon_logger.info("Scheduler is DISABLED in config (schedule_enabled = FALSE)")
+            daemon_logger.info("Service will exit cleanly. Use 'systemctl start' to restart manually.")
+            sys.exit(0)  # code 0 = normal termination - systemd does NOT restart
         
         # Create scheduler
         scheduler_instance = create_scheduler_from_config(config)
