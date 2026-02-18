@@ -18,12 +18,13 @@ from pathlib import Path
 
 # Import scrapers
 from .emmamason_algolia_v5_1 import (
+from ..modules.logger import get_logger
     EmmaMasonAlgoliaScraperV5_1,
     AlgoliaAPIKeyExpired
 )
 from .emmamason_brands import EmmaMasonBrandsScraper as EmmaMasonHTMLScraper
 
-logger = logging.getLogger("emmamason_smart")
+logger = get_logger("emmamason_smart")
 
 class EmmaMasonSmartScraper:
     """

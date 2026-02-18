@@ -6,11 +6,12 @@ Parses only 3 specific manufacturers via the manufacturer API endpoint
 import requests
 import time
 import logging
+from ..modules.logger import get_logger
 from typing import List, Dict, Optional
 from datetime import datetime
 from ..modules.error_logger import ScraperErrorMixin
 
-logger = logging.getLogger("coleman")
+logger = get_logger("coleman")
 
 class ColemanScraper(ScraperErrorMixin):
     """Scraper for colemanfurniture.com"""

@@ -11,6 +11,7 @@ Emma Mason Algolia API Scraper v5.1 - FIXED
 import time
 import random
 import logging
+from ..modules.logger import get_logger
 import sys
 import json
 from pathlib import Path
@@ -41,7 +42,7 @@ except ImportError:
     print("Install: pip install requests")
     sys.exit(1)
 
-logger = logging.getLogger("emmamason_algolia")
+logger = get_logger("emmamason_algolia")
 
 class AlgoliaAPIKeyExpired(Exception):
     """Exception when Algolia API key expired or invalid"""
