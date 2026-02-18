@@ -10,8 +10,8 @@ Emma Mason Algolia API Scraper v5.1 - FIXED
 
 import time
 import random
-import logging
 from ..modules.logger import get_logger
+import logging
 import sys
 import json
 from pathlib import Path

@@ -17,8 +17,8 @@ from datetime import datetime
 from pathlib import Path
 
 # Import scrapers
-from .emmamason_algolia_v5_1 import (
 from ..modules.logger import get_logger
+from .emmamason_algolia_v5_1 import (
     EmmaMasonAlgoliaScraperV5_1,
     AlgoliaAPIKeyExpired
 )
