@@ -172,16 +172,25 @@ class RepricerScheduler:
         # Add every time
         for time_str in self.schedule_times:
             try:
-                # Validate time format
-                datetime.strptime(time_str, "%H:%M")
+                # Parse time
+                hour, minute = map(int, time_str.split(':'))
                 
-                # Schedule job
-                schedule.every().day.at(time_str).do(self._run_repricer)
+                # Create datetime in target timezone (e.g., America/New_York)
+                target_tz = self.timezone
+                now = datetime.now(target_tz)
+                target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
                 
-                logger.info(f"[OK] Scheduled: {time_str} {self.timezone_name}")
+                # Convert to UTC (system time)
+                utc_time = target_time.astimezone(pytz.UTC)
+                utc_time_str = utc_time.strftime("%H:%M")
+                
+                # Schedule in UTC (because schedule library uses system time)
+                schedule.every().day.at(utc_time_str).do(self._run_repricer)
+                
+                logger.info(f"[OK] Scheduled: {time_str} {self.timezone_name} = {utc_time_str} UTC")
             
-            except ValueError:
-                logger.error(f"Invalid time format: {time_str} (expected HH:MM)")
+            except ValueError as e:
+                logger.error(f"Invalid time format: {time_str} (expected HH:MM) - {e}")
         
         # Show next runs
         self._log_next_runs()
@@ -197,11 +206,15 @@ class RepricerScheduler:
         logger.info(f"\nScheduled jobs ({len(jobs)}):")
         
         for job in jobs:
-            next_run = job.next_run
-            if next_run:
-                # schedule library works in local system time (not UTC)
-                # Just add timezone info without conversion
-                next_run_local = self.timezone.localize(next_run)
+            next_run_naive = job.next_run
+            if next_run_naive:
+                # job.next_run is naive datetime in system time (UTC on server)
+                # Add UTC timezone info
+                next_run_utc = pytz.UTC.localize(next_run_naive)
+                
+                # Convert to target timezone
+                next_run_local = next_run_utc.astimezone(self.timezone)
+                
                 logger.info(f"  Next run: {next_run_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     
     def run_forever(self):
