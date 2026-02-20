@@ -102,9 +102,7 @@ class EmmaMasonSmartScraper:
         except AlgoliaAPIKeyExpired as e:
             logger.warning(f"Algolia API key issue detected: {e}")
 
-    
             # Step 2: Try auto-refresh API key
-    
             logger.info("\n[STEP 2] Attempting API key auto-refresh...")
 
             if self._try_auto_refresh_api_key():
@@ -154,7 +152,6 @@ class EmmaMasonSmartScraper:
 
 
         # STEP 3: Fallback to HTML v3 scraping
-
         logger.warning("\n[STEP 3] Falling back to HTML scraping v3...")
 
         self._send_notification(
@@ -234,7 +231,7 @@ class EmmaMasonSmartScraper:
         try:
             # Check if Playwright is installed
             try:
-                from playwright.sync_api import sync_playwright
+                from rebrowser_playwright.sync_api import sync_playwright
             except ImportError:
                 logger.error("Playwright not installed!")
                 logger.error("Install: pip install playwright")
@@ -276,7 +273,7 @@ class EmmaMasonSmartScraper:
         New API key or None
         """
         try:
-            from playwright.sync_api import sync_playwright
+            from rebrowser_playwright.sync_api import sync_playwright
 
             with sync_playwright() as p:
                 logger.info("Launching browser...")
@@ -329,7 +326,7 @@ class EmmaMasonSmartScraper:
 
                     # METHOD 2: Trigger search via input
                     logger.info("Method 1 failed, trying Method 2 (trigger search input)...")
-
+                    time.sleep(20)
                     # Try to find search input
                     selectors = [
                         'input[type="search"]',
@@ -344,15 +341,15 @@ class EmmaMasonSmartScraper:
                         try:
                             search_input = page.locator(selector).first
 
-                            if search_input.is_visible(timeout=2000):
+                            if search_input.is_visible(timeout=3000):
                                 logger.debug(f"Found search input: {selector}")
 
                                 # Try to find search input
-                                search_input.click(timeout=2000)
-                                search_input.fill('furniture', timeout=2000)
+                                search_input.click(timeout=3000)
+                                search_input.fill('furniture', timeout=3000)
 
                                 # You may need to press Enter.
-                                search_input.press('Enter', timeout=2000)
+                                search_input.press('Enter', timeout=3000)
 
                                 # wait until Algolia makes a request
                                 time.sleep(3)
@@ -366,7 +363,7 @@ class EmmaMasonSmartScraper:
 
                     # METHOD 3: JavaScript eval window object
                     logger.info("Method 2 failed, trying Method 3 (JavaScript eval)...")
-
+                    time.sleep(25)
                     try:
                         js_code = """
                         () => {
@@ -399,7 +396,7 @@ class EmmaMasonSmartScraper:
 
                     # Search in different METHOD 4: Try different search URLs
                     logger.info("Method 3 failed, trying Method 4 (alternative search URLs)...")
-
+                    time.sleep(10)
                     search_urls = [
                         'https://emmamason.com/?q=table',
                         'https://emmamason.com/?q=bed',
@@ -409,7 +406,7 @@ class EmmaMasonSmartScraper:
                     for url in search_urls:
                         try:
                             logger.debug(f"Trying: {url}")
-                            page.goto(url, timeout=30000)
+                            page.goto(url, timeout=50000)
                             page.wait_for_load_state('domcontentloaded', timeout=60000)
                             time.sleep(3)
 
@@ -462,16 +459,6 @@ class EmmaMasonSmartScraper:
 
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-
-            # Backup
-            backup_path = file_path.with_suffix('.py.backup')
-            with open(backup_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-
-            logger.info(f"Created backup: {backup_path}")
-                # Correct regex pattern
-                # Searches for: ALGOLIA_API_KEY = “anything”
-                # Important: (?!.*#) - there should be no # before the string (not commented out)
 
             pattern = r'^(\s*ALGOLIA_API_KEY\s*=\s*)"[^"]+"'
             replacement = r'\1"' + new_key + '"'

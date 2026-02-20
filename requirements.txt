@@ -38,7 +38,7 @@ schedule==1.2.0          # Job scheduling library
 pytz==2024.1             # Timezone support for accurate scheduling
 
 # BROWSER AUTOMATION (Optional - for Algolia key refresh)
-playwright==1.40.0
+rebrowser-playwright==1.52.0
 # After install run: playwright install chromium
 
 # NOTIFICATIONS (Optional)

@@ -1,11 +1,5 @@
 """
-Emma Mason Algolia API Scraper v5.1 - FIXED
-[OK] Automatic bypass of pagination limit (1000 products)
-[OK] Splitting large brands via collection_style facets
-[OK] Recursive splitting if collection_style >1000
-[OK] Clean JSON without HTML parsing
-[OK] 100% all products for all brands
-[OK] FIXED: Proper handling of expired API key (400/403 errors)
+Emma Mason Algolia API Scraper v5.1
 """
 
 import time
@@ -57,7 +51,7 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
     # Algolia API Configuration
     ALGOLIA_URL = "https://ctz7lv7pje-dsn.algolia.net/1/indexes/*/queries"
     ALGOLIA_APP_ID = "CTZ7LV7PJE"
-    ALGOLIA_API_KEY = "MWY0M2EzNGIwNmY3ZjkxYjYxZjc3YjY4M2JmNjkxYzAzZDYxMTljMjk0ZWRmYjU0M2EwMDA2ZTdjOGYzNGExMXRhZ0ZpbHRlcnM9JnZhbGlkVW50aWw9MTc3MTM1MzY3Ng=="
+    ALGOLIA_API_KEY = "ODc4OWY3OGU4ZmRhYmQ1ZjJiMzQ5MzA0MDIwNzI5MjVhMjg2YTQ2MDkxMzY0YWY5YTBmZmYxY2RlNmE4MDRmNnRhZ0ZpbHRlcnM9JnZhbGlkVW50aWw9MTc3MTY2NjQyNg=="
     INDEX_NAME = "magento2_emmamason_products"
 
     # Pagination limit
@@ -108,7 +102,7 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         return f'[[{",".join(filter_strings)}]]'
 
     def _build_params(self, filters: List[Tuple[str, str]], page: int = 0,
-                      facets: List[str] = None, hits: int = None) -> str:
+                        facets: List[str] = None, hits: int = None) -> str:
         """Build URL params for Algolia"""
 
         facet_filters = self._build_facet_filters(filters)
@@ -128,8 +122,8 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         return '&'.join([f"{k}={quote(str(v))}" for k, v in params.items()])
 
     def _build_params_with_price(self, filters: List[Tuple[str, str]],
-                                  min_price: float, max_price: float,
-                                  page: int = 0, hits: int = None) -> str:
+                                    min_price: float, max_price: float,
+                                    page: int = 0, hits: int = None) -> str:
         """
         Build params with price range
 
@@ -482,7 +476,7 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         return all_products
 
     def _scrape_simple(self, filters: List[Tuple[str, str]],
-                      brand: str, seen_ids: Set[str]) -> List[Dict]:
+                        brand: str, seen_ids: Set[str]) -> List[Dict]:
         """
         Simple scraping (≤1000 products) with pagination
         """
