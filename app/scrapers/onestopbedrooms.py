@@ -9,8 +9,9 @@ import logging
 from typing import List, Dict, Optional
 from datetime import datetime
 from ..modules.error_logger import ScraperErrorMixin
+from ..modules.logger import get_logger
 
-logger = logging.getLogger("onestopbedrooms")
+logger = get_logger("onestopbedrooms")
 
 class OneStopBedroomsScraper(ScraperErrorMixin):
     """Scraper for 1stopbedrooms.com - collects by manufacturers"""

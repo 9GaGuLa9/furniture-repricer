@@ -19,6 +19,7 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 from ..modules.error_logger import ScraperErrorMixin
+from ..modules.logger import get_logger
 
 try:
     from curl_cffi import requests as curl_requests
@@ -33,7 +34,7 @@ except ImportError:
         import requests
         logging.error("Neither curl_cffi nor cloudscraper installed! Install: pip install curl-cffi")
 
-logger = logging.getLogger("afa")
+logger = get_logger("afa")
 
 class AFAScraper(ScraperErrorMixin):
     """Scraper for afastores.com via Shopify collections - category-based"""
