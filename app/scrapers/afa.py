@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 # Playwright for cookie warm-up
 try:
-    from playwright.sync_api import sync_playwright
+    from rebrowser_playwright.sync_api import sync_playwright
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
