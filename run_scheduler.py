@@ -43,20 +43,37 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
+def _read_scheduler_log_level() -> int:
+    """Read scheduler_log_level from config.yaml (fallback: INFO)."""
+    try:
+        config_path = project_root / "config.yaml"
+        if config_path.exists():
+            import yaml as _yaml
+            with open(config_path, "r", encoding="utf-8") as _f:
+                _cfg = _yaml.safe_load(_f)
+            _lvl = _cfg.get("logging", {}).get("scheduler_log_level", "INFO")
+            return getattr(logging, _lvl.upper(), logging.INFO)
+    except Exception:
+        pass
+    return logging.INFO
+
+
 def setup_logging():
-    """Setup logging for daemon"""
+    """Setup logging for daemon (level from config.yaml → logging.scheduler_log_level)."""
     global daemon_logger
-    
+
+    log_level = _read_scheduler_log_level()
+
     # Create logs directory
     log_dir = project_root / "logs"
     log_dir.mkdir(exist_ok=True)
-    
+
     # Log file with date
     log_file = log_dir / f"scheduler_{datetime.now().strftime('%Y-%m-%d')}.log"
-    
+
     # Setup logging with UTF-8 encoding and error handling for emoji
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format='%(asctime)s | %(name)-15s | %(levelname)-8s | %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
         handlers=[
@@ -159,6 +176,18 @@ def main():
             daemon_logger.info("Service will exit cleanly. Use 'systemctl start' to restart manually.")
             sys.exit(0)  # code 0 = normal termination - systemd does NOT restart
         
+        # Apply scheduler_log_level override from Google Sheets if present
+        _gs_sched_level = config.get('scheduler_log_level')
+        if _gs_sched_level:
+            _numeric = getattr(logging, _gs_sched_level.upper(), logging.INFO)
+            logging.getLogger().setLevel(_numeric)
+            for _h in logging.getLogger().handlers:
+                _h.setLevel(_numeric)
+            daemon_logger.debug(
+                f"Scheduler log level overridden from Google Sheets: "
+                f"{_gs_sched_level}"
+            )
+
         # Create scheduler
         scheduler_instance = create_scheduler_from_config(config)
         

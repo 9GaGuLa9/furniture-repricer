@@ -83,13 +83,48 @@ def get_logger(name: str = "repricer") -> logging.Logger:
     return logging.getLogger(f"repricer.{name}")
 
 
+# Scraper logger name fragments — used to apply scrap_log_level selectively.
+# Any repricer.<name> where <name> starts with one of these prefixes is a scraper.
+SCRAPER_LOGGER_PREFIXES: tuple = (
+    "emmamason",
+    "coleman",
+    "afa",
+    "onestopbedrooms",
+)
+
+
+def _is_scraper_logger(name: str) -> bool:
+    """Return True if the logger name belongs to a scraper."""
+    # name is like 'repricer.coleman' or 'repricer.emmamason_algolia'
+    short = name.removeprefix("repricer.")
+    return short.startswith(SCRAPER_LOGGER_PREFIXES)
+
+
 def setup_logging(
     log_dir: str = 'logs',
     log_format: str = None,
     date_format: str = None,
     level: str = 'INFO',
-    retention_days: int = 10
+    sys_level: str = None,
+    scrap_level: str = None,
+    retention_days: int = 10,
 ) -> logging.Logger:
+    """
+    Configure the main logger.
+
+    Args:
+        log_dir:     Directory for logs.
+        log_format:  Logging format string.
+        date_format: Date format string.
+        level:       Fallback level used when sys_level / scrap_level are not
+                     provided (kept for backwards-compatibility).
+        sys_level:   Level for system modules (google_sheets, pricing, …).
+        scrap_level: Level for scraper modules (emmamason, coleman, afa, …).
+        retention_days: Days to keep log files.
+
+    Returns:
+        Root repricer logger instance.
+    """
     """
     Configure the main logger
     Support for log_level parameter
@@ -103,12 +138,21 @@ def setup_logging(
     Returns:
         Logger instance
     """
-    # Convert string level to logging constant
-    numeric_level = getattr(logging, level.upper(), logging.INFO)
+    # Resolve effective levels for each tier.
+    # If the fine-grained params are absent, fall back to the generic `level`.
+    def _to_numeric(lvl: str) -> int:
+        return getattr(logging, lvl.upper(), logging.INFO)
+
+    sys_numeric   = _to_numeric(sys_level   or level)
+    scrap_numeric = _to_numeric(scrap_level  or level)
+
+    # The root repricer logger must be at the *most permissive* level so
+    # that child loggers at DEBUG can propagate messages up to the handlers.
+    root_numeric  = min(sys_numeric, scrap_numeric)
     
     # Create the root application logger
     logger = logging.getLogger("repricer")
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(root_numeric)
     logger.propagate = False  # Don't propagate to root — we handle everything here
 
     # Remove existing handlers if any
@@ -124,7 +168,8 @@ def setup_logging(
     
     # Console handler with the specified level
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(numeric_level)
+    # Console shows the less-verbose of the two tiers (keeps output readable).
+    console_handler.setLevel(max(sys_numeric, scrap_numeric))
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
@@ -136,7 +181,7 @@ def setup_logging(
         log_file = log_path / f"repricer_{datetime.now().strftime('%Y-%m-%d')}.log"
         
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)  # The file is always detailed
+        file_handler.setLevel(root_numeric)  # File matches the most permissive tier
         
         file_formatter = logging.Formatter(
             '%(asctime)s | %(name)-15s | %(levelname)-8s | %(funcName)-20s | %(message)s',
@@ -146,7 +191,10 @@ def setup_logging(
         logger.addHandler(file_handler)
         
         logger.debug(f"Logging to file: {log_file}")
-        logger.debug(f"Console log level: {level}")
+        logger.debug(
+            f"Log levels — sys: {sys_level or level}, "
+            f"scrapers: {scrap_level or level}"
+        )
         
         # Cleanup old logs
         deleted = cleanup_old_logs(log_dir, retention_days)
@@ -157,6 +205,63 @@ def setup_logging(
     
     return logger
 
+
+
+
+def apply_log_levels(
+    sys_level: str = None,
+    scrap_level: str = None,
+) -> None:
+    """
+    Apply new log levels to all repricer logger handlers at runtime.
+
+    Safe to call from any thread — Python logging uses internal locks.
+    Typically called after Google Sheets config is loaded so that runtime
+    overrides (sys_log_level / scrap_log_level) are honoured without a restart.
+
+    Args:
+        sys_level:   New level for system modules, e.g. 'INFO'.
+        scrap_level: New level for scraper modules, e.g. 'DEBUG'.
+    """
+    if not sys_level and not scrap_level:
+        return
+
+    def _to_numeric(lvl: str) -> int:
+        return getattr(logging, lvl.upper(), logging.INFO)
+
+    root = logging.getLogger("repricer")
+
+    sys_numeric   = _to_numeric(sys_level)   if sys_level   else None
+    scrap_numeric = _to_numeric(scrap_level) if scrap_level else None
+
+    # Collect all active child loggers in the repricer namespace
+    manager = root.manager
+    child_loggers = [
+        logging.getLogger(name)
+        for name in manager.loggerDict
+        if name.startswith("repricer.")
+    ]
+
+    for child in child_loggers:
+        if _is_scraper_logger(child.name):
+            if scrap_numeric is not None:
+                child.setLevel(scrap_numeric)
+        else:
+            if sys_numeric is not None:
+                child.setLevel(sys_numeric)
+
+    # Root must be at least as permissive as the most verbose child
+    active = [
+        v for v in (sys_numeric, scrap_numeric) if v is not None
+    ]
+    if active:
+        root.setLevel(min(active))
+        for handler in root.handlers:
+            handler.setLevel(min(active))
+
+    root.debug(
+        f"Log levels updated — sys: {sys_level}, scrapers: {scrap_level}"
+    )
 
 class LogBlock:
     """Context manager for logging code blocks"""

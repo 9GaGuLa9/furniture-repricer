@@ -171,6 +171,9 @@ class ConfigManager:
             'test_mode': False,
             'dry_run': False,
             'log_level': 'INFO',
+            'sys_log_level': 'INFO',
+            'scrap_log_level': 'INFO',
+            'scheduler_log_level': 'INFO',
             
             # === SCRAPERS CONTROL ===
             'scraper_emmamason': True,

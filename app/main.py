@@ -10,7 +10,7 @@ from datetime import datetime
 import yaml
 
 # Imports
-from .modules.logger import setup_logging
+from .modules.logger import setup_logging, apply_log_levels
 from .modules.google_sheets import GoogleSheetsClient, RepricerSheetsManager
 from .modules.config_reader import GoogleSheetsConfigReader
 from .modules.config_manager import ConfigManager
@@ -58,6 +58,17 @@ class FurnitureRepricer:
         # FIRST runtime_config!
         self.runtime_config = self.config_manager.get_config()
         self.price_rules = self.config_manager.get_price_rules()
+
+        # Apply log levels from Google Sheets (override config.yaml values).
+        # Safe to call at any point — uses Python logging locks internally.
+        _gs_sys   = self.runtime_config.get('sys_log_level')
+        _gs_scrap = self.runtime_config.get('scrap_log_level')
+        if _gs_sys or _gs_scrap:
+            apply_log_levels(sys_level=_gs_sys, scrap_level=_gs_scrap)
+            self.logger.debug(
+                f"Google Sheets log overrides applied — "
+                f"sys: {_gs_sys}, scrapers: {_gs_scrap}"
+            )
 
         # STEP 4: ErrorLogger with auto-cleanup (ONLY AFTER runtime_config!)
         save_errors = self.runtime_config.get('save_scraping_errors', True)
@@ -246,11 +257,13 @@ class FurnitureRepricer:
 
         # Setup logging
         log_config = self.base_config.get('logging', {})
-        logger = setup_logging(  # Assign result to logger
+        logger = setup_logging(
             log_dir=log_config.get('directory', 'logs'),
             log_format=log_config.get('format'),
             date_format=log_config.get('date_format'),
             level=log_config.get('level', 'INFO'),
+            sys_level=log_config.get('sys_log_level'),
+            scrap_level=log_config.get('scrap_log_level'),
             retention_days=self.base_config.get('log_retention_days', 10)
         )
 

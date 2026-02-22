@@ -159,7 +159,10 @@ sku_matching:
 # Logger is configured once at startup — changes require restart
 log_retention_days: 10         # Keep log files for n days   # need restart
 logging:
-  level: "INFO"                # DEBUG/INFO/WARNING/ERROR    # need restart
+  level: "INFO"                # Legacy fallback (used when tier-specific levels absent) # need restart
+  sys_log_level: "INFO"        # Level for system modules (google_sheets, pricing, sku_matcher, ...) # need restart
+  scrap_log_level: "INFO"      # Level for all scrapers (emmamason, coleman, afa, onestopbedrooms)   # need restart
+  scheduler_log_level: "INFO"  # Level for scheduler daemon (run_scheduler.py)                       # need restart
   directory: "logs"            #                             # need restart
   format: "%(asctime)s | %(name)-15s | %(levelname)-8s | %(funcName)-20s | %(message)s"
   date_format: "%Y-%m-%d %H:%M:%S"
