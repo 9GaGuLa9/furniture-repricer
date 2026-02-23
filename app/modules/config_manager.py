@@ -292,7 +292,7 @@ class ConfigManager:
                 'max_retries': config.get('emmamason_max_retries', 3),
             })
         else:
-            scraper_config['max_products'] = config.get('max_products_per_competitor', 2000)
+            scraper_config['max_products'] = config.get('max_products_per_competitor', 5000)
         
         return scraper_config
     
