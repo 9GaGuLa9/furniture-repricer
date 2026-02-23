@@ -288,11 +288,11 @@ class ConfigManager:
         # Emma Mason specific
         if scraper_name == 'emmamason':
             scraper_config.update({
-                'max_products': config.get('max_products_emmamason', 5000),
+                'max_products': config.get('max_products_emmamason', 50000),
                 'max_retries': config.get('emmamason_max_retries', 3),
             })
         else:
-            scraper_config['max_products'] = config.get('max_products_per_competitor', 5000)
+            scraper_config['max_products'] = config.get('max_products_per_competitor', 50000)
         
         return scraper_config
     
