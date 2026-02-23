@@ -376,7 +376,7 @@ if __name__ == "__main__":
         'schedule_enabled': True,
         'schedule_times': '06:00,16:00,21:00',
         'schedule_timezone': 'America/New_York',
-        'scraping_timeout_minutes': 240
+        'scraping_timeout_minutes': 300
     }
     scheduler2 = create_scheduler_from_config(test_config)
     

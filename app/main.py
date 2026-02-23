@@ -940,7 +940,9 @@ class FurnitureRepricer:
                 has_competitors = any([
                     product.get('site1_price'),
                     product.get('site2_price'),
-                    product.get('site3_price')
+                    product.get('site3_price'),
+                    product.get('site4_price'),
+                    product.get('site5_price'),
                 ])
 
                 if not has_competitors:

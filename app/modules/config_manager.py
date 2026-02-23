@@ -186,7 +186,7 @@ class ConfigManager:
             # === SCRAPING LIMITS ===
             'max_products_emmamason': 15000,
             'max_products_per_competitor': 50000,
-            'scraping_timeout_minutes': 120,
+            'scraping_timeout_minutes': 300,
             
             # === EMMA MASON SPECIFIC ===
             'emmamason_max_retries': 3,

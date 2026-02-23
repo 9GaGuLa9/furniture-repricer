@@ -244,7 +244,7 @@ class GoogleSheetsConfigReader:
             'scraper_afastores': True,
             'max_products_emmamason': 50000,
             'max_products_per_competitor': 50000,
-            'scraping_timeout_minutes': 45,
+            'scraping_timeout_minutes': 300,
             
             # Emma Mason
             'emmamason_max_retries': 3,
