@@ -432,11 +432,16 @@ class FurnitureRepricer:
 
             # Batch update
             if emma_products and not self.runtime_config.get('dry_run'):
-                # Save RAW data to a separate sheet
-                raw_saved = self.sheets_manager.batch_update_emma_mason_raw(emma_products)
-                self.logger.info(f"[OK] Emma Mason RAW saved: {raw_saved} products")
+                # Save RAW data to a separate sheet (optional)
+                if self.config_manager.is_enabled('enable_emmamason_sheet'):
+                    raw_saved = self.sheets_manager.batch_update_emma_mason_raw(emma_products)
+                    self.logger.info(f"[OK] Emma Mason RAW saved: {raw_saved} products")
+                else:
+                    self.logger.info(
+                        "Emma_Mason_Raw sheet SKIPPED (enable_emmamason_sheet = False)"
+                    )
 
-                # Create a scraper configuration
+                # Update prices in Main sheet (always runs)
                 updated = self.sheets_manager.batch_update_emma_mason(emma_products)
                 self.logger.info(f"[OK] Emma Mason updated: {updated} products")
 
