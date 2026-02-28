@@ -7,6 +7,7 @@ Merged config = used in runtime
 """
 
 import os
+from datetime import datetime, timedelta
 import re
 import yaml
 from dotenv import load_dotenv
@@ -63,9 +64,12 @@ class ConfigManager:
         self.sheets_reader = sheets_reader
         self.logger = logger
 
-        # Cached config
+        # Cached config with TTL
         self._merged_config = None
+        self._merged_config_at: datetime | None = None
         self._price_rules = None
+        self._price_rules_at: datetime | None = None
+        self.CONFIG_TTL_MINUTES: int = 30
 
     def get_config(self, force_reload: bool = False) -> Dict[str, Any]:
         """
@@ -77,9 +81,25 @@ class ConfigManager:
         Returns:
             Merged config dictionary
         """
-        if self._merged_config is None or force_reload:
+        now = datetime.now()
+        ttl_expired = (
+            self._merged_config is None
+            or self._merged_config_at is None
+            or now - self._merged_config_at
+            > timedelta(minutes=self.CONFIG_TTL_MINUTES)
+        )
+        if ttl_expired or force_reload:
             self._merged_config = self._merge_configs()
-        
+            self._merged_config_at = now
+        else:
+            remaining = (
+                self.CONFIG_TTL_MINUTES
+                - (now - self._merged_config_at).seconds // 60
+            )
+            self.logger.debug(
+                f"Using cached config (expires in ~{remaining} min)"
+            )
+
         return self._merged_config
     
     def get_price_rules(self, force_reload: bool = False) -> Dict[str, float]:
@@ -92,7 +112,14 @@ class ConfigManager:
         Returns:
             Price rules dictionary
         """
-        if self._price_rules is None or force_reload:
+        now = datetime.now()
+        rules_expired = (
+            self._price_rules is None
+            or self._price_rules_at is None
+            or now - self._price_rules_at
+            > timedelta(minutes=self.CONFIG_TTL_MINUTES)
+        )
+        if rules_expired or force_reload:
             # Try with Google Sheets
             sheets_rules = self.sheets_reader.read_price_rules()
             
@@ -103,7 +130,8 @@ class ConfigManager:
                 sheets_rules = yaml_config.get('price_rules', self._get_hardcoded_price_rules())
             
             self._price_rules = sheets_rules
-        
+            self._price_rules_at = now
+
         return self._price_rules
     
     def _merge_configs(self) -> Dict[str, Any]:
@@ -230,6 +258,7 @@ class ConfigManager:
             # === DATA & HISTORY ===
             'enable_price_history': True,
             'enable_competitors_sheet': True,
+            'enable_emmamason_sheet': True,
             'save_scraping_errors': True,
             
             # === VALIDATION ===
@@ -422,6 +451,7 @@ class ConfigManager:
         self.logger.info(f"  Price updates:   {'[OK]' if config.get('enable_price_updates') else '✗'}")
         self.logger.info(f"  Price history:   {'[OK]' if config.get('enable_price_history') else '✗'}")
         self.logger.info(f"  Competitors:     {'[OK]' if config.get('enable_competitors_sheet') else '✗'}")
+        self.logger.info(f"  Emma Raw sheet:  {'[OK]' if config.get('enable_emmamason_sheet', True) else '✗'}")
         
         # Performance
         self.logger.info("")
@@ -439,7 +469,9 @@ class ConfigManager:
         self.logger.info("="*60)
     
     def reload(self):
-        """Reload configuration (if Google Sheets has changed)"""
+        """Force reload configuration (bypass TTL cache)"""
         self._merged_config = None
+        self._merged_config_at = None
         self._price_rules = None
-        self.logger.info("Configuration reloaded")
+        self._price_rules_at = None
+        self.logger.info("Configuration reloaded (cache cleared)")

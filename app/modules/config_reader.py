@@ -258,6 +258,7 @@ class GoogleSheetsConfigReader:
             # Data
             'enable_price_history': True,
             'enable_competitors_sheet': True,
+            'enable_emmamason_sheet': True,
             'save_scraping_errors': True,
             
             # Validation

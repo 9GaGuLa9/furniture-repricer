@@ -7,6 +7,7 @@ from google.oauth2.service_account import Credentials
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 import time
+import random
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
@@ -42,6 +43,63 @@ def normalize_url(url: str) -> str:
     except Exception as e:
         logger.debug(f"Failed to normalize URL '{url}': {e}")
         return url.strip().lower()
+
+
+
+def sheets_retry(
+    max_retries: int = 5,
+    base_delay: float = 2.0,
+    max_delay: float = 120.0,
+):
+    """
+    Decorator: exponential backoff для Google Sheets API викликів.
+    Обробляє 429 (quota exceeded) та 503 (service unavailable).
+
+    Args:
+        max_retries: Максимальна кількість спроб (включно з першою)
+        base_delay:  Початкова затримка в секундах
+        max_delay:   Максимальна затримка в секундах
+    """
+    import functools
+    import logging as _logging
+
+    _logger = _logging.getLogger("sheets_retry")
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as exc:
+                    err = str(exc).lower()
+                    is_quota = "429" in err or "quota" in err or "rate" in err
+                    is_unavail = "503" in err or "service unavailable" in err
+                    is_timeout = "timeout" in err or "timed out" in err
+
+                    if not (is_quota or is_unavail or is_timeout):
+                        raise  # Не retryable — одразу кидаємо
+
+                    if attempt == max_retries - 1:
+                        _logger.error(
+                            f"{func.__name__}: max retries ({max_retries}) reached. "
+                            f"Last error: {exc}"
+                        )
+                        raise
+
+                    delay = min(
+                        base_delay * (2 ** attempt) + random.uniform(0, 1),
+                        max_delay,
+                    )
+                    _logger.warning(
+                        f"{func.__name__}: attempt {attempt + 1}/{max_retries} failed "
+                        f"({'quota' if is_quota else 'unavailable' if is_unavail else 'timeout'}). "
+                        f"Retry in {delay:.1f}s. Error: {exc}"
+                    )
+                    time.sleep(delay)
+
+        return wrapper
+    return decorator
 
 
 class GoogleSheetsClient:
@@ -216,6 +274,7 @@ class GoogleSheetsClient:
             logger.error(f"Failed to update cell: {e}")
             raise
     
+    @sheets_retry()
     def update_range(self, sheet_id: str, range_name: str, values: List[List[Any]],
                     worksheet_name: str = None):
         """
@@ -235,6 +294,7 @@ class GoogleSheetsClient:
             logger.error(f"Failed to update range: {e}")
             raise
     
+    @sheets_retry()
     def batch_update(self, sheet_id: str, updates: List[Dict], worksheet_name: str = None):
         """
         Batch update (more efficient for many changes))
@@ -263,6 +323,7 @@ class GoogleSheetsClient:
             logger.error(f"Failed batch update: {e}")
             raise
     
+    @sheets_retry()
     def append_row(self, sheet_id: str, values: List[Any], worksheet_name: str = None):
         """
         Add a new row to the end of the table
@@ -658,6 +719,7 @@ class RepricerSheetsManager:
             return False
 
     
+    @sheets_retry()
     def batch_update_all(self, products: List[Dict]) -> int:
         """
         Download all updates together
@@ -925,6 +987,7 @@ class RepricerSheetsManager:
             self.logger.error(f"Failed to delete rows batch: {e}")
             return deleted
 
+    @sheets_retry()
     def batch_add_to_history(self, history_records: List[Dict]) -> int:
         """
         TRUE Batch recording Price History with auto-expand
@@ -1326,6 +1389,7 @@ class RepricerSheetsManager:
             self.logger.warning(f"Cannot convert {type(value)} '{value}' to float")
             return default
 
+    @sheets_retry()
     def batch_update_competitors_raw(
         self, 
         competitor_data: Dict[str, List[Dict]],
@@ -1451,6 +1515,7 @@ class RepricerSheetsManager:
             self.logger.error(f"Failed to update Competitors sheet: {e}", exc_info=True)
             return 0
     
+    @sheets_retry()
     def batch_update_emma_mason_raw(self, scraped_products: List[Dict]) -> int:
         """
         Record ALL RAW data from Emma Mason scraper

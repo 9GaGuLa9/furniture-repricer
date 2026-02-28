@@ -68,8 +68,9 @@ price_rules:
 # ============================================================
 # DATA & HISTORY                               [no restart]
 # ============================================================
-enable_price_history: true             # Record the history of price changes
-enable_competitors_sheet: true         # Update Competitors sheet
+enable_emmamason_sheet: false           # Update Emma Mason sheet with scraped data
+enable_price_history: false             # Record the history of price changes
+enable_competitors_sheet: false         # Update Competitors sheet
 save_scraping_errors: true             # Store scraping errors
 
 # ============================================================
@@ -100,7 +101,7 @@ schedule_timezone: "America/New_York" # Time zone                        # need 
 # NOTIFICATIONS                                [need restart]
 # ============================================================
 # Telegram bot is initialized once at startup
-telegram_enabled: false        # Send Telegram messages                  # need restart
+telegram_enabled: true        # Send Telegram messages                  # need restart
 telegram_on_errors_only: false # Only in case of errors                  # need restart
 telegram_chat_id: "1232524215"           # Telegram chat ID (numeric value)        # need restart
 telegram_bot_token: "${TELEGRAM_BOT_TOKEN}"   # Set in .env file
