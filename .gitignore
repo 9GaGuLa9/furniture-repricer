@@ -13,13 +13,14 @@ docs*/
 
 # Logs from scraper runs
 *.log
-
+0
 # Temporary files
 *.tmp
 *.temp
 
 # Sensitive data
 .env
+.env.local
 credentials/
 *.json
 !requirements.json

@@ -1,5 +1,6 @@
 """
 Modules package for Furniture Repricer
+UPDATED v5.1 - Added TelegramBot
 """
 
 from .logger import get_logger, setup_logging, LogBlock
@@ -9,6 +10,7 @@ from .sku_matcher import SKUMatcher
 from .config_manager import ConfigManager
 from .config_reader import GoogleSheetsConfigReader
 from .error_logger import ErrorLogger, ScraperErrorMixin
+from .telegram_bot import TelegramBot
 
 __all__ = [
     # Logging
@@ -34,4 +36,7 @@ __all__ = [
     # Error Logging
     'ErrorLogger',
     'ScraperErrorMixin',
+
+    # Notifications
+    'TelegramBot',
 ]

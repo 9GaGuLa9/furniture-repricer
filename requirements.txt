@@ -3,7 +3,6 @@
 #   pip install -r requirements.txt
 
 # CORE - Google Sheets Integration
-
 gspread==5.12.0
 google-auth==2.23.4
 google-auth-oauthlib==1.1.0
@@ -42,7 +41,7 @@ rebrowser-playwright==1.52.0
 # After install run: playwright install chromium
 
 # NOTIFICATIONS (Optional)
-# python-telegram-bot==20.7
+python-telegram-bot==20.7
 
 # UTILITY LIBRARIES
 # For date/time handling
@@ -62,9 +61,4 @@ tenacity==8.2.3
 #    - Activate before install: source venv/bin/activate
 #
 # 3. Optional packages:
-#    - Playwright: Only if using browser-based scraping
 #    - Telegram: Only if notifications enabled
-#
-# 4. Testing installation:
-#    python -c "import gspread, curl_cffi, schedule, pytz; print('✅ OK')"
-

@@ -102,8 +102,8 @@ schedule_timezone: "America/New_York" # Time zone                        # need 
 # Telegram bot is initialized once at startup
 telegram_enabled: false        # Send Telegram messages                  # need restart
 telegram_on_errors_only: false # Only in case of errors                  # need restart
-telegram_chat_id: ""           # Telegram chat ID (numeric value)        # need restart
-telegram_bot_token: ""         # Bot token (from environment or here)    # need restart
+telegram_chat_id: "1232524215"           # Telegram chat ID (numeric value)        # need restart
+telegram_bot_token: "${TELEGRAM_BOT_TOKEN}"   # Set in .env file
 
 # ============================================================
 # TESTING & DEBUG                              [no restart]

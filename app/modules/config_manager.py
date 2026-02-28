@@ -6,22 +6,53 @@ Google Sheets = customer changes (overrides)
 Merged config = used in runtime
 """
 
+import os
+import re
 import yaml
+from dotenv import load_dotenv
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from .config_reader import GoogleSheetsConfigReader
 from .logger import get_logger
 
+load_dotenv()  # Load .env into os.environ
+
 logger = get_logger("config_manager")
 
+def _resolve_env_vars(value: str) -> str:
+    """Replace ${VAR_NAME} placeholders with environment variable values."""
+    pattern = r'\$\{([^}]+)\}'
+
+    def replacer(match: re.Match) -> str:
+        var_name = match.group(1)
+        env_value = os.environ.get(var_name)
+        if env_value is None:
+            raise ValueError(
+                f"Environment variable '{var_name}' is not set. "
+                f"Add it to your .env file."
+            )
+        return env_value
+
+    return re.sub(pattern, replacer, value)
+
+
+def _resolve_config_values(config: Any) -> Any:
+    """Recursively resolve ${VAR} placeholders in config."""
+    if isinstance(config, str):
+        return _resolve_env_vars(config)
+    if isinstance(config, dict):
+        return {key: _resolve_config_values(value) for key, value in config.items()}
+    if isinstance(config, list):
+        return [_resolve_config_values(item) for item in config]
+    return config
 
 class ConfigManager:
     """
     Configuration management with merge logic
-    
+
     Priority: Google Sheets > YAML defaults > Hardcoded defaults
     """
-    
+
     def __init__(self, yaml_path: str, sheets_reader: GoogleSheetsConfigReader):
         """
         Args:
@@ -31,11 +62,11 @@ class ConfigManager:
         self.yaml_path = Path(yaml_path)
         self.sheets_reader = sheets_reader
         self.logger = logger
-        
+
         # Cached config
         self._merged_config = None
         self._price_rules = None
-    
+
     def get_config(self, force_reload: bool = False) -> Dict[str, Any]:
         """
         Get merged configuration
@@ -149,14 +180,13 @@ class ConfigManager:
         return config
     
     def _load_yaml_config(self) -> Dict[str, Any]:
-        """
-        Download YAML configuration
-        
-        Returns:
-            YAML config dictionary
-        """
+        """Load and parse YAML config with env var substitution."""
         with open(self.yaml_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f) or {}
+            raw_config = yaml.safe_load(f)
+
+        # Resolve ${ENV_VAR} placeholders
+        resolved = _resolve_config_values(raw_config)
+        return resolved
     
     def _get_hardcoded_defaults(self) -> Dict[str, Any]:
         """
@@ -220,7 +250,7 @@ class ConfigManager:
             'schedule_timezone': 'America/New_York',
             
             # === NOTIFICATIONS ===
-            'telegram_enabled': True,
+            'telegram_enabled': False,
             'telegram_on_errors_only': False,
             'telegram_chat_id': '',
             

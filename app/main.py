@@ -15,6 +15,7 @@ from .modules.google_sheets import GoogleSheetsClient, RepricerSheetsManager
 from .modules.config_reader import GoogleSheetsConfigReader
 from .modules.config_manager import ConfigManager
 from .modules.error_logger import ErrorLogger
+from .modules.telegram_bot import TelegramBot
 from .modules.sku_matcher import SKUMatcher
 from .modules.competitors_tracker import CompetitorsMatchedTracker
 from .modules.pricing import PricingEngine, BatchPricingProcessor
@@ -58,6 +59,9 @@ class FurnitureRepricer:
         # FIRST runtime_config!
         self.runtime_config = self.config_manager.get_config()
         self.price_rules = self.config_manager.get_price_rules()
+
+        # Telegram bot — runtime_config is ready
+        self.telegram_bot = TelegramBot.from_config(self.runtime_config)
 
         # Apply log levels from Google Sheets (override config.yaml values).
         # Safe to call at any point — uses Python logging locks internally.
@@ -292,6 +296,12 @@ class FurnitureRepricer:
         # Competitors Matched Tracker
         self.matched_tracker = CompetitorsMatchedTracker()
 
+        # TelegramBot initialized here with a placeholder, 
+        # real initialization in __init__ after runtime_config is ready
+        self.telegram_bot: TelegramBot = TelegramBot(
+            token="pending", chat_id="0", enabled=False
+        )
+
         self.logger.info("[OK] Components initialized")
 
     def run(self):
@@ -312,6 +322,7 @@ class FurnitureRepricer:
 
             # 1. Download data from Google Sheets
             client_products = self._load_client_data()
+            self.telegram_bot.send_run_start(products_count=len(client_products))
 
             # Test sample
             if self.runtime_config.get('test_mode'):
@@ -353,8 +364,23 @@ class FurnitureRepricer:
             self.logger.info("[SUCCESS] REPRICER COMPLETED SUCCESSFULLY")
             self.logger.info("="*60)
 
+            self.telegram_bot.send_run_complete({
+                "duration_min": (time.time() - start_time) / 60,
+                "total_products": len(client_products),
+                "updated_products": updated,
+                "emma_mason": len(
+                    getattr(self, "_emma_products_count", 0)
+                    and [self._emma_products_count] or [0]
+                ),
+                "competitors": {
+                    k: len(v)
+                    for k, v in getattr(self, "competitor_data", {}).items()
+                },
+            })
+
         except Exception as e:
             self.logger.error(f"[ERROR] Repricer failed: {e}", exc_info=True)
+            self.telegram_bot.send_run_failed(e)
             raise
 
     def _load_client_data(self) -> List[Dict]:
@@ -397,8 +423,9 @@ class FurnitureRepricer:
             emma_scraper = EmmaMasonBrandsScraper(
                 config,
                 error_logger=self.error_logger,
-                telegram_bot=getattr(self, 'telegram_bot', None)  
+                telegram_bot=self.telegram_bot,
             )
+
             emma_products = emma_scraper.scrape_all_brands()
 
             self.logger.info(f"Emma Mason scraped: {len(emma_products)} products")

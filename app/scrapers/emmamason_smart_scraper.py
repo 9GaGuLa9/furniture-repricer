@@ -2,10 +2,8 @@
 Emma Mason Smart Scraper Wrapper
 Try Algolia API (fast, 7000+ products)
     If key expired -> auto-refresh via Playwright
-    If failed -> fallback to HTML v3 (slow, 600+ products)
+    If failed -> fallback to HTML (slow, 600+ products)
     Telegram notifications
-    Fully autonomous for hosting
-    Playwright opens search URL (emmamason.com/?q=...)
     Correct regex for replacing API key in file
 """
 

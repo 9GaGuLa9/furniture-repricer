@@ -188,7 +188,7 @@ class GoogleSheetsClient:
             
             # write a line
             range_name = f"A{row_number}"
-            worksheet.update(range_name, [values_str], value_input_option='USER_ENTERED')
+            worksheet.update(range_name, [values_str], value_input_option='RAW')
             
             logger.debug(f"Wrote row {row_number}")
             
@@ -229,7 +229,7 @@ class GoogleSheetsClient:
         """
         try:
             worksheet = self.open_sheet(sheet_id, worksheet_name)
-            worksheet.update(range_name, values, value_input_option='USER_ENTERED')
+            worksheet.update(range_name, values, value_input_option='RAW')
             logger.info(f"Updated range {range_name}")
         except Exception as e:
             logger.error(f"Failed to update range: {e}")
@@ -256,7 +256,7 @@ class GoogleSheetsClient:
                 })
             
             # Perform a batch update
-            worksheet.batch_update(data, value_input_option='USER_ENTERED')
+            worksheet.batch_update(data, value_input_option='RAW')
             logger.info(f"Batch updated {len(updates)} ranges")
             
         except Exception as e:
@@ -275,7 +275,7 @@ class GoogleSheetsClient:
         try:
             worksheet = self.open_sheet(sheet_id, worksheet_name)
             values_str = [str(v) if v is not None else "" for v in values]
-            worksheet.append_row(values_str, value_input_option='USER_ENTERED')
+            worksheet.append_row(values_str, value_input_option='RAW')
             logger.debug(f"Appended row with {len(values)} values")
         except Exception as e:
             logger.error(f"Failed to append row: {e}")
@@ -821,7 +821,7 @@ class RepricerSheetsManager:
             chunk_size = 500
             for i in range(0, len(all_updates), chunk_size):
                 chunk = all_updates[i:i+chunk_size]
-                worksheet.batch_update(chunk, value_input_option='USER_ENTERED')
+                worksheet.batch_update(chunk, value_input_option='RAW')
 
                 self.logger.info(f"  Updated chunk {i//chunk_size + 1}/{(len(all_updates)-1)//chunk_size + 1}")
 
@@ -987,7 +987,7 @@ class RepricerSheetsManager:
                 
                 # Update one range
                 range_name = f'A{start_row}:F{end_row}'
-                worksheet.update(range_name, all_rows, value_input_option='USER_ENTERED')
+                worksheet.update(range_name, all_rows, value_input_option='RAW')
                 
                 self.logger.info(f"[OK] Added {len(all_rows)} records to Price_History")
                 return len(all_rows)
@@ -1432,7 +1432,7 @@ class RepricerSheetsManager:
                 time.sleep(0.3)
             
             # Update headers (in case they changed)
-            worksheet.update('A1:K1', [headers], value_input_option='USER_ENTERED')
+            worksheet.update('A1:K1', [headers], value_input_option='RAW')
             time.sleep(0.3)
             
             # Write all competitor data
@@ -1441,7 +1441,7 @@ class RepricerSheetsManager:
             range_name = f'A{start_row}:K{end_row}'
             
             self.logger.info(f"Writing {len(all_rows)} competitor products...")
-            worksheet.update(range_name, all_rows, value_input_option='USER_ENTERED')
+            worksheet.update(range_name, all_rows, value_input_option='RAW')
             
             self.logger.info(f"[OK] {sheet_name} sheet updated: {len(all_rows)} products")
             
@@ -1530,7 +1530,7 @@ class RepricerSheetsManager:
                 
                 # Update one range with USER_ENTERED for correct formatting
                 range_name = f'A{start_row}:E{end_row}'
-                worksheet.update(range_name, all_rows, value_input_option='USER_ENTERED')
+                worksheet.update(range_name, all_rows, value_input_option='RAW')
                 
                 self.logger.info(f"[OK] Emma_Mason_Raw sheet updated: {len(all_rows)} RAW products")
                 
