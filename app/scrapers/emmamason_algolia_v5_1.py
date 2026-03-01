@@ -51,7 +51,7 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
     # Algolia API Configuration
     ALGOLIA_URL = "https://ctz7lv7pje-dsn.algolia.net/1/indexes/*/queries"
     ALGOLIA_APP_ID = "CTZ7LV7PJE"
-    ALGOLIA_API_KEY = "MGU0NWU4OGQwYjU5MDk2YmRkN2FmYzk0YmQyYmViNzkyM2YyOWIzZWE0MDI4YTgyM2VjMzg4Y2FkMTVkNGM3NXRhZ0ZpbHRlcnM9JnZhbGlkVW50aWw9MTc3MTkzNjI4Ng=="
+    ALGOLIA_API_KEY = "OTU1ODY2ZTRlNjVjYzg5ZWNkYmMxYjU5NmRiYTM0MDRhZDVlOGQ5ZTJlNjZhMDk1MmZiZTNiNjFmNmE5Y2IyZnRhZ0ZpbHRlcnM9JnZhbGlkVW50aWw9MTc3MjM3MjgyMw=="
     INDEX_NAME = "magento2_emmamason_products"
 
     # Pagination limit
