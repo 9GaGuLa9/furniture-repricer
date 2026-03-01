@@ -17,6 +17,9 @@ logger = get_logger("google_sheets")
 
 
 def normalize_url(url: str) -> str:
+    # Handle protocol-less URLs stored by _strip_url_protocol
+    if url and not url.startswith("http") and "." in url:
+        url = "https://" + url
     """
     Normalize URLs for comparison
     """
@@ -100,6 +103,40 @@ def sheets_retry(
 
         return wrapper
     return decorator
+
+
+def _strip_url_protocol(url: str) -> str:
+    """
+    Remove http:// and https:// protocol prefix from URL.
+
+    Google Sheets auto-converts any string starting with http(s)://
+    into a clickable hyperlink at the rendering level — regardless of
+    value_input_option or apostrophe prefix tricks.
+
+    Stripping the protocol prevents GS from recognizing it as a URL.
+    The result is still fully readable (domain is visible) and can be
+    reconstructed when needed.
+
+    Examples:
+        https://www.coleman.com/product/abc  ->  coleman.com/product/abc
+        http://1stopbedrooms.com/item/xyz    ->  1stopbedrooms.com/item/xyz
+        coleman.com/product/abc             ->  coleman.com/product/abc (unchanged)
+        ""                                  ->  ""
+
+    Args:
+        url: Raw URL string (may or may not have protocol)
+
+    Returns:
+        URL without protocol prefix, or original if empty/non-http.
+    """
+    if not url:
+        return url
+    url = str(url).strip()
+    if url.startswith("https://"):
+        return url[len("https://"):]
+    if url.startswith("http://"):
+        return url[len("http://"):]
+    return url
 
 
 class GoogleSheetsClient:
@@ -808,9 +845,9 @@ class RepricerSheetsManager:
             if 'site1_price' in prices:
                 site1_price_raw = prices.get('site1_price')
                 site1_price = self._to_float(site1_price_raw) if site1_price_raw else ''
-                site1_url = prices.get('site1_url', '')
+                site1_url = _strip_url_protocol(prices.get('site1_url', ''))
                 site1_sku = prices.get('site1_sku', '')
-                
+
                 all_updates.append({
                     'range': f'G{row_num}:H{row_num}',
                     'values': [[site1_price, site1_url]]
@@ -820,8 +857,8 @@ class RepricerSheetsManager:
             if 'site2_price' in prices:
                 site2_price_raw = prices.get('site2_price')
                 site2_price = self._to_float(site2_price_raw) if site2_price_raw else ''
-                site2_url = prices.get('site2_url', '')
-                
+                site2_url = _strip_url_protocol(prices.get('site2_url', ''))
+
                 all_updates.append({
                     'range': f'I{row_num}:J{row_num}',
                     'values': [[site2_price, site2_url]]
@@ -831,8 +868,8 @@ class RepricerSheetsManager:
             if 'site3_price' in prices:
                 site3_price_raw = prices.get('site3_price')
                 site3_price = self._to_float(site3_price_raw) if site3_price_raw else ''
-                site3_url = prices.get('site3_url', '')
-                
+                site3_url = _strip_url_protocol(prices.get('site3_url', ''))
+
                 all_updates.append({
                     'range': f'K{row_num}:L{row_num}',
                     'values': [[site3_price, site3_url]]
@@ -842,8 +879,8 @@ class RepricerSheetsManager:
             if 'site4_price' in prices:
                 site4_price_raw = prices.get('site4_price')
                 site4_price = self._to_float(site4_price_raw) if site4_price_raw else ''
-                site4_url = prices.get('site4_url', '')
-                
+                site4_url = _strip_url_protocol(prices.get('site4_url', ''))
+
                 all_updates.append({
                     'range': f'M{row_num}:N{row_num}',
                     'values': [[site4_price, site4_url]]
@@ -853,8 +890,8 @@ class RepricerSheetsManager:
             if 'site5_price' in prices:
                 site5_price_raw = prices.get('site5_price')
                 site5_price = self._to_float(site5_price_raw) if site5_price_raw else ''
-                site5_url = prices.get('site5_url', '')
-                
+                site5_url = _strip_url_protocol(prices.get('site5_url', ''))
+
                 all_updates.append({
                     'range': f'O{row_num}:P{row_num}',
                     'values': [[site5_price, site5_url]]
@@ -883,6 +920,7 @@ class RepricerSheetsManager:
             chunk_size = 500
             for i in range(0, len(all_updates), chunk_size):
                 chunk = all_updates[i:i+chunk_size]
+                # USER_ENTERED: required for apostrophe plain-text URLs
                 worksheet.batch_update(chunk, value_input_option='RAW')
 
                 self.logger.info(f"  Updated chunk {i//chunk_size + 1}/{(len(all_updates)-1)//chunk_size + 1}")
@@ -1022,7 +1060,7 @@ class RepricerSheetsManager:
                 row = [
                     timestamp,
                     record.get('sku', ''),
-                    record.get('url', ''),
+                    _strip_url_protocol(record.get('url', '')),
                     old_price,
                     new_price,
                     change
@@ -1050,8 +1088,9 @@ class RepricerSheetsManager:
                 
                 # Update one range
                 range_name = f'A{start_row}:F{end_row}'
-                worksheet.update(range_name, all_rows, value_input_option='RAW')
-                
+                worksheet.update(
+                    range_name, all_rows, value_input_option='RAW'
+                )
                 self.logger.info(f"[OK] Added {len(all_rows)} records to Price_History")
                 return len(all_rows)
             
@@ -1451,13 +1490,13 @@ class RepricerSheetsManager:
                         source_display,
                         sku,
                         self._to_float(product.get('price', 0)),
-                        product.get('url', ''),
+                        _strip_url_protocol(product.get('url', '')),
                         product.get('brand', ''),
                         product.get('title', ''),
                         timestamp,
                         matched,              # Boolean TRUE/FALSE
                         matched_with,         # Our SKU
-                        matched_with_url,     # Our URL
+                        _strip_url_protocol(matched_with_url),  # Our URL (plain text)
                         used                  # Boolean TRUE/FALSE
                     ]
                     all_rows.append(row)
@@ -1505,8 +1544,9 @@ class RepricerSheetsManager:
             range_name = f'A{start_row}:K{end_row}'
             
             self.logger.info(f"Writing {len(all_rows)} competitor products...")
-            worksheet.update(range_name, all_rows, value_input_option='RAW')
-            
+            worksheet.update(
+                range_name, all_rows, value_input_option='RAW'
+            )
             self.logger.info(f"[OK] {sheet_name} sheet updated: {len(all_rows)} products")
             
             return len(all_rows)
@@ -1559,7 +1599,7 @@ class RepricerSheetsManager:
             for product in scraped_products:
                 row = [
                     product.get('id', ''),
-                    product.get('url', ''),
+                    _strip_url_protocol(product.get('url', '')),
                     self._to_float(product.get('price', 0)),  # Convert to float
                     product.get('brand', ''),
                     product.get('scraped_at', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
@@ -1595,8 +1635,10 @@ class RepricerSheetsManager:
                 
                 # Update one range with USER_ENTERED for correct formatting
                 range_name = f'A{start_row}:E{end_row}'
-                worksheet.update(range_name, all_rows, value_input_option='RAW')
-                
+                # USER_ENTERED required for apostrophe plain-text prefix to work
+                worksheet.update(
+                    range_name, all_rows, value_input_option='RAW'
+                )
                 self.logger.info(f"[OK] Emma_Mason_Raw sheet updated: {len(all_rows)} RAW products")
                 
                 # Show statistics by brand
