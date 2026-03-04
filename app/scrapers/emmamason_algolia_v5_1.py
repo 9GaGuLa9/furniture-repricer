@@ -163,6 +163,8 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
         Raises:
             AlgoliaAPIKeyExpired: If API key expired (400/403)
         """
+        last_error: Optional[Exception] = None
+
         for attempt in range(1, self.retry_attempts + 1):
             try:
                 headers = {
@@ -210,6 +212,7 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
                 raise
 
             except Exception as e:
+                last_error = e  # FIX Bug 2: preserve real traceback
                 error_msg = str(e).lower()
 
                 # Check if it could be an expired key
@@ -222,8 +225,13 @@ class EmmaMasonAlgoliaScraperV5_1(ScraperErrorMixin):
                 if attempt < self.retry_attempts:
                     time.sleep(2)
 
-        # If all attempts are unsuccessful
+        # FIX Bug 2: log to Google Sheets only after all retries are exhausted
         logger.error("All retry attempts failed")
+        self.log_scraping_error(
+            error=last_error or Exception("All retry attempts failed"),
+            url=self.ALGOLIA_URL,
+            context={'total_attempts': self.retry_attempts}
+        )
         return None
 
     def _get_facets(self, filters: List[Tuple[str, str]],

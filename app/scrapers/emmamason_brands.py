@@ -25,6 +25,7 @@ except ImportError:
 
 logger = logging.getLogger("emmamason_brands")
 
+
 class EmmaMasonBrandsScraper(ScraperErrorMixin):
     """Scraper for emmamason.com - collects by brands"""
 
@@ -43,8 +44,10 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
     ]
 
     USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     ]
 
     def __init__(self, config: dict, error_logger=None):
@@ -62,9 +65,9 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
         else:
             logger.info("[OK] curl_cffi available")
 
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("Emma Mason Brands Scraper v3.0 (Optimized)")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
     def _random_delay(self):
         """Delay between requests"""
@@ -76,10 +79,15 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
 
     def _fetch_page(self, url: str, referer: Optional[str] = None) -> Optional[str]:
         """Load page (curl_cffi + impersonate)"""
+        last_error: Optional[Exception] = None
+
         for attempt in range(1, self.retry_attempts + 1):
             try:
                 headers = {
-                    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "accept": (
+                        "text/html,application/xhtml+xml,"
+                        "application/xml;q=0.9,*/*;q=0.8"
+                    ),
                     "accept-language": "en-US,en;q=0.9",
                     "accept-encoding": "gzip, deflate, br",
                     "user-agent": self._get_random_user_agent(),
@@ -107,35 +115,53 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
                     return response.text
 
                 elif response.status_code == 403:
-                    logger.warning(f"403 Forbidden (attempt {attempt}/{self.retry_attempts})")
+                    logger.warning(
+                        f"403 Forbidden (attempt {attempt}/{self.retry_attempts})"
+                    )
+                    last_error = Exception("403 Forbidden")
                     time.sleep(random.uniform(5, 10))
 
                 else:
-                    logger.warning(f"Status {response.status_code} (attempt {attempt})")
+                    logger.warning(
+                        f"Status {response.status_code} (attempt {attempt})"
+                    )
+                    last_error = Exception(f"HTTP {response.status_code}")
                     time.sleep(3)
 
             except Exception as e:
+                last_error = e  # preserve real traceback for GS logging
                 error_msg = str(e)
 
                 if "timed out" in error_msg.lower() or "timeout" in error_msg.lower():
-                    logger.warning(f"Timeout (attempt {attempt}/{self.retry_attempts})")
+                    logger.warning(
+                        f"Timeout (attempt {attempt}/{self.retry_attempts})"
+                    )
                     time.sleep(random.uniform(5, 10))
                 else:
                     logger.error(f"Request error (attempt {attempt}): {e}")
                     time.sleep(3)
 
+        # FIX Bug 3: log to Google Sheets only after all retries are exhausted
+        logger.error(
+            f"Failed to fetch page after {self.retry_attempts} attempts: {url}"
+        )
+        self.log_scraping_error(
+            error=last_error or Exception("Page fetch failed"),
+            url=url,
+            context={'retry_attempts': self.retry_attempts}
+        )
         return None
 
     def _parse_price(self, price_text: str) -> Optional[str]:
         """
         Emma Mason can return:
-            - “$887.84” (period) - OK
-            - “$887,84” (comma) - must be replaced with a period!
-            - “$887.84” (without $, with comma)
-            - “$887.84” (without $, with period)
+            - "$887.84"  (dollar + period)   → OK
+            - "$887,84"  (dollar + comma)    → convert comma to period
+            - "887,84"   (no dollar, comma)  → convert comma to period
+            - "887.84"   (no dollar, period) → OK
 
         Returns:
-        String with the price in the format “$887.84” or None
+            String with price like "887.84", or None on failure
         """
         if not price_text:
             return None
@@ -148,8 +174,8 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
                 return None
 
             # Determine separator
-            # If there is a comma and NO period, it is the European format.
             if ',' in cleaned and '.' not in cleaned:
+                # European format: "887,84" → "887.84"
                 cleaned = cleaned.replace(',', '.')
                 logger.debug(f"Converted comma price: {price_text} → {cleaned}")
 
@@ -158,30 +184,34 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
                 dot_pos = cleaned.index('.')
 
                 if dot_pos > comma_pos:
-                    # "1,234.56" - American format, remove comma
+                    # American thousands: "1,234.56" → "1234.56"
                     cleaned = cleaned.replace(',', '')
                 else:
-                    # "1.234,56" - European format
+                    # European thousands: "1.234,56" → "1234.56"
                     cleaned = cleaned.replace('.', '').replace(',', '.')
 
-            # Try converting to check
+            # Validate
             try:
                 float(cleaned)
                 return cleaned
             except ValueError:
-                logger.warning(f"Failed to parse price '{price_text}' → '{cleaned}'")
+                logger.warning(
+                    f"Failed to parse price '{price_text}' → '{cleaned}'"
+                )
                 return None
 
         except Exception as e:
             logger.error(f"Price parsing error for '{price_text}': {e}")
             return None
 
-    def _extract_products_from_page(self, html: str, brand_name: str) -> List[Dict]:
+    def _extract_products_from_page(
+        self, html: str, brand_name: str
+    ) -> List[Dict]:
         """
-        Remove products from the brand page
+        Extract products from a brand page.
 
         Returns:
-            List[Dict]: [{id, url, price, brand}, ...]
+            List[Dict]: [{id, url, price, brand, scraped_at}, ...]
         """
         products = []
 
@@ -191,7 +221,7 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
 
             for item in product_items:
                 try:
-                    # Product ID with price-box data-product-id
+                    # Product ID via data-product-id on price-box
                     price_box = item.find('div', {'data-role': 'priceBox'})
                     if not price_box:
                         continue
@@ -207,7 +237,7 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
                     if not url:
                         continue
 
-                    # Price with correct comma processing
+                    # Price (with comma → period conversion)
                     price = None
                     price_elem = item.find('span', class_='price')
                     if price_elem:
@@ -232,7 +262,7 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
         return products
 
     def scrape_brand(self, brand_info: dict, seen_ids: Set[str]) -> List[Dict]:
-        """Parsite one brand"""
+        """Scrape one brand across all its pages"""
         brand_name = brand_info['name']
         brand_url = brand_info['url']
 
@@ -244,33 +274,37 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
         while True:
             # Build URL
             if page == 1:
-                url = f"{self.BASE_URL}/{brand_url}?product_list_limit={self.per_page}"
+                url = (
+                    f"{self.BASE_URL}/{brand_url}"
+                    f"?product_list_limit={self.per_page}"
+                )
             else:
-                url = f"{self.BASE_URL}/{brand_url}?p={page}&product_list_limit={self.per_page}"
+                url = (
+                    f"{self.BASE_URL}/{brand_url}"
+                    f"?p={page}&product_list_limit={self.per_page}"
+                )
 
             logger.debug(f"  Page {page}: {url}")
 
-            # Download pageDownload page
             html = self._fetch_page(url, referer=self.BASE_URL)
 
             if not html:
                 logger.error(f"  Failed to fetch page {page}")
                 break
 
-            # Cloudflare verification
+            # Cloudflare check
             if "Just a moment" in html or "Checking your browser" in html:
-                logger.warning(f"  Cloudflare challenge detected")
+                logger.warning("  Cloudflare challenge detected")
                 break
 
-            # Parsite goods
             products = self._extract_products_from_page(html, brand_name)
 
-            # Stop only when there are NO products
+            # Stop when there are no products (last page)
             if not products:
                 logger.info(f"  No products on page {page} - last page")
                 break
 
-            # Add unique
+            # Add unique products only
             new_count = 0
             duplicate_count = 0
 
@@ -284,23 +318,25 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
                 else:
                     duplicate_count += 1
 
-            logger.info(f"  Page {page}: {new_count} new, {duplicate_count} duplicates (total: {len(brand_products)})")
+            logger.info(
+                f"  Page {page}: {new_count} new, "
+                f"{duplicate_count} duplicates "
+                f"(total: {len(brand_products)})"
+            )
 
-            # Protection from infinite loops
+            # Guard against infinite loops
             if page >= 100:
-                logger.warning(f"  Page limit reached (100)")
+                logger.warning("  Page limit reached (100)")
                 break
 
             page += 1
             self._random_delay()
 
         logger.info(f"[OK] Brand {brand_name}: {len(brand_products)} unique products")
-
         return brand_products
 
     def scrape_all_brands(self) -> List[Dict]:
-        """Parsite all brands"""
-
+        """Scrape all brands"""
         all_products = []
         seen_ids = set()
 
@@ -311,7 +347,6 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
                     all_products.extend(products)
 
                 except Exception as e:
-                    # LOG ERROR
                     self.log_scraping_error(
                         error=e,
                         context={'brand': brand_info['name']}
@@ -322,19 +357,17 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
                 time.sleep(3)
 
         except Exception as e:
-            # LOG GLOBAL ERROR
             self.log_scraping_error(error=e, context={'stage': 'main'})
             raise
 
         # Final statistics
-        logger.info("\n" + "="*60)
+        logger.info("\n" + "=" * 60)
         logger.info("SCRAPING COMPLETED")
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info(f"Total products: {len(all_products)}")
         logger.info(f"Unique IDs: {len(seen_ids)}")
 
-        # Parsite all brands
-        brands_stats = {}
+        brands_stats: Dict[str, int] = {}
         for p in all_products:
             brand = p['brand']
             brands_stats[brand] = brands_stats.get(brand, 0) + 1
@@ -342,21 +375,21 @@ class EmmaMasonBrandsScraper(ScraperErrorMixin):
         logger.info("\nBy brand:")
         for brand, count in brands_stats.items():
             logger.info(f"  {brand}: {count}")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         return all_products
 
 
 def scrape_emmamason_brands(config: dict) -> List[Dict]:
     """
-    Main function for parsing Emma Mason
+    Main function for parsing Emma Mason.
 
     USED IN app/main.py:
-    from app.scrapers.emmamason_brands import scrape_emmamason_brands
-    results = scrape_emmamason_brands(config)
+        from app.scrapers.emmamason_brands import scrape_emmamason_brands
+        results = scrape_emmamason_brands(config)
 
     Returns:
-        List[Dict]: [{id, url, price, brand}, ...]
+        List[Dict]: [{id, url, price, brand, scraped_at}, ...]
     """
     scraper = EmmaMasonBrandsScraper(config)
     results = scraper.scrape_all_brands()

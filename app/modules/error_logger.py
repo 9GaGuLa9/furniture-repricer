@@ -70,6 +70,10 @@ class ErrorLogger:
             'last_cleanup': None
         }
 
+        # FIX Bug 4: Cache worksheet object to avoid repeated open_sheet API calls.
+        # Reset to None on any GS error so next call re-opens fresh.
+        self._worksheet_cache: Optional[gspread.Worksheet] = None
+
         # Create a sheet if it does not exist
         if self.enabled:
             self._ensure_error_sheet_exists()
@@ -101,11 +105,26 @@ class ErrorLogger:
                 ]
 
                 worksheet.update('A1', [headers])
+                self._worksheet_cache = worksheet  # prime cache right away
                 self.logger.info(f"[OK] Created {self.error_sheet_name} sheet")
 
         except Exception as e:
             self.logger.error(f"Failed to create {self.error_sheet_name} sheet: {e}")
             self.enabled = False
+
+    # ------------------------------------------------------------------
+    # FIX Bug 4: single cached open_sheet call instead of one per log_error
+    # ------------------------------------------------------------------
+    def _get_worksheet(self) -> gspread.Worksheet:
+        """
+        Return cached Scraping_Errors worksheet.
+        Opens it on first call (or after any error resets the cache).
+        """
+        if self._worksheet_cache is None:
+            self._worksheet_cache = self.client.open_sheet(
+                self.sheet_id, self.error_sheet_name
+            )
+        return self._worksheet_cache
 
     def cleanup_old_errors(self) -> int:
         """
@@ -118,9 +137,7 @@ class ErrorLogger:
             return 0
 
         try:
-            worksheet: gspread.Worksheet = self.client.open_sheet(
-                self.sheet_id, self.error_sheet_name
-            )
+            worksheet: gspread.Worksheet = self._get_worksheet()
 
             all_data: List[List[str]] = worksheet.get_all_values()
 
@@ -159,6 +176,7 @@ class ErrorLogger:
             return 0
 
         except Exception as e:
+            self._worksheet_cache = None  # reset cache on error
             self.logger.error(f"Failed to cleanup old errors: {e}")
             return 0
 
@@ -168,7 +186,8 @@ class ErrorLogger:
         row_indices: List[int]
     ) -> int:
         """
-        Delete multiple rows efficiently (from bottom to top).
+        FIX Bug 5: Delete multiple rows in a single batchUpdate API call
+        instead of one delete_rows() request per row.
 
         Args:
             worksheet: gspread Worksheet instance
@@ -180,29 +199,37 @@ class ErrorLogger:
         if not row_indices:
             return 0
 
-        # Sort in reverse order to delete from bottom to top
-        # (so that indexes are not shifted during deletion)
+        # Sort descending so row indices stay valid as rows are removed top→bottom
         sorted_indices = sorted(row_indices, reverse=True)
-        deleted = 0
-        batch_size = 100
 
         try:
-            for i in range(0, len(sorted_indices), batch_size):
-                batch = sorted_indices[i:i + batch_size]
+            spreadsheet = worksheet.spreadsheet
+            sheet_id = worksheet.id
 
-                for row_idx in batch:
-                    worksheet.delete_rows(row_idx)
-                    deleted += 1
+            # Build one deleteDimension request per row, then send as single batchUpdate
+            requests_body = [
+                {
+                    "deleteDimension": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "dimension": "ROWS",
+                            "startIndex": row_idx - 1,  # API is 0-indexed
+                            "endIndex": row_idx          # exclusive upper bound
+                        }
+                    }
+                }
+                for row_idx in sorted_indices
+            ]
 
-                # Small delay between batches to avoid rate limits
-                if i + batch_size < len(sorted_indices):
-                    time.sleep(1)
-
-            return deleted
+            spreadsheet.batch_update({"requests": requests_body})
+            # Cache is now stale — reset so next read fetches fresh data
+            self._worksheet_cache = None
+            return len(sorted_indices)
 
         except Exception as e:
-            self.logger.error(f"Failed to delete rows batch: {e}")
-            return deleted
+            self._worksheet_cache = None
+            self.logger.error(f"Failed to batch delete rows: {e}")
+            return 0
 
     def log_error(
         self,
@@ -244,9 +271,8 @@ class ErrorLogger:
                 tb
             ]
 
-            worksheet: gspread.Worksheet = self.client.open_sheet(
-                self.sheet_id, self.error_sheet_name
-            )
+            # FIX Bug 4: use cached worksheet instead of open_sheet on every call
+            worksheet = self._get_worksheet()
             worksheet.append_row(row, value_input_option='RAW')
 
             self.stats['errors_logged'] += 1
@@ -260,6 +286,7 @@ class ErrorLogger:
                 self.cleanup_old_errors()
 
         except Exception as e:
+            self._worksheet_cache = None  # reset cache so next call retries open_sheet
             self.logger.error(f"Failed to log error to sheet: {e}")
             # Don't raise — this is fallback logging
 
@@ -285,9 +312,7 @@ class ErrorLogger:
             return 0
 
         try:
-            worksheet: gspread.Worksheet = self.client.open_sheet(
-                self.sheet_id, self.error_sheet_name
-            )
+            worksheet: gspread.Worksheet = self._get_worksheet()
             all_data: List[List[str]] = worksheet.get_all_values()
 
             if len(all_data) <= 1:
@@ -312,6 +337,7 @@ class ErrorLogger:
             return count
 
         except Exception as e:
+            self._worksheet_cache = None
             self.logger.error(f"Failed to get error count: {e}")
             return 0
 

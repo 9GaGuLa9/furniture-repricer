@@ -209,17 +209,6 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
                     f"Page: {page}, Attempt: {attempt + 1}/{self.retry_attempts}, "
                     f"Error: {error_str[:100]}"
                 )
-                self.log_scraping_error(
-                    error=e,
-                    url=self.GRAPHQL_URL,
-                    context={
-                        'method': '_safe_request',
-                        'brand': brand_name,
-                        'page': page,
-                        'attempt': f"{attempt + 1}/{self.retry_attempts}",
-                        'error_type': type(e).__name__
-                    }
-                )
 
             # Retry delay
             if attempt < self.retry_attempts - 1:
@@ -228,6 +217,16 @@ query getListingData($slug: String!, $request: catalogSearchFilterInput, $zipcod
             logger.error(
                 f"[X] FINAL FAILURE - Brand: '{brand_name}', Page: {page} - "
                 f"gave up after {self.retry_attempts} attempts"
+            )
+            self.log_scraping_error(
+                error=last_error,
+                url=self.GRAPHQL_URL,
+                context={
+                    'brand': brand_name,
+                    'page': page,
+                    'total_attempts': self.retry_attempts,
+                    'status_code': last_status_code
+                }
             )
 
             # Track failed request
