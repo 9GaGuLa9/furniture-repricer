@@ -299,7 +299,7 @@ class FurnitureRepricer:
         # TelegramBot initialized here with a placeholder, 
         # real initialization in __init__ after runtime_config is ready
         self.telegram_bot: TelegramBot = TelegramBot(
-            token="pending", chat_id="0", enabled=False
+            token="pending", recipients=[], enabled=False
         )
 
         self.logger.info("[OK] Components initialized")

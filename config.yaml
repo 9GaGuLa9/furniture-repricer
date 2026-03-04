@@ -105,6 +105,33 @@ telegram_enabled: true        # Send Telegram messages                  # need r
 telegram_on_errors_only: false # Only in case of errors                  # need restart
 telegram_chat_id: "1232524215"           # Telegram chat ID (numeric value)        # need restart
 telegram_bot_token: "${TELEGRAM_BOT_TOKEN}"   # Set in .env file
+# ============================================================
+# NOTIFICATIONS                                [need restart]
+# ============================================================
+# Telegram bot is initialized once at startup.
+#
+# Notification levels (ascending verbosity):
+#   SILENT   — nothing at all
+#   CRITICAL — run crashed, fatal scraper error
+#   ERRORS   — CRITICAL + non-fatal errors, Algolia key refresh failed
+#   WARNINGS — ERRORS + fallbacks used, key refreshed, run finished with errors
+#   INFO     — WARNINGS + run start / complete (normal flow)
+#   ALL      — INFO + per-scraper granular status (developer only)
+#
+# NEW format — multiple recipients:
+telegram_enabled: true                            # Send Telegram messages            # need restart
+telegram_bot_token: "${TELEGRAM_BOT_TOKEN}"       # Set in .env file
+telegram_recipients:
+  - name: "Developer"                             # receives everything
+    chat_id: "1232524215"                         # Telegram chat ID (numeric value)  # need restart
+    level: "INFO"
+  - name: "Client"
+    chat_id: ""          # client specifies it themselves via Sheets
+    level: "SILENT"      # remains silent until the client configures it
+
+# LEGACY format — single recipient (still supported, no changes needed):
+# telegram_chat_id: "1232524215"
+# telegram_on_errors_only: false   # false → INFO level; true → ERRORS level
 
 # ============================================================
 # TESTING & DEBUG                              [no restart]
