@@ -29,7 +29,7 @@ from .scrapers.afa import AFAScraper
 logger = None  # Will be initialized in _load_base_config()
 
 class FurnitureRepricer:
-    """Main replayer with Config management + Error logging"""
+    """Main repricer with Config management + Error logging"""
 
     def __init__(self, config_path: str):
         """
@@ -368,10 +368,7 @@ class FurnitureRepricer:
                 "duration_min": (time.time() - start_time) / 60,
                 "total_products": len(client_products),
                 "updated_products": updated,
-                "emma_mason": len(
-                    getattr(self, "_emma_products_count", 0)
-                    and [self._emma_products_count] or [0]
-                ),
+                "emma_mason": getattr(self, "_emma_products_count", 0),
                 "competitors": {
                     k: len(v)
                     for k, v in getattr(self, "competitor_data", {}).items()
@@ -429,6 +426,7 @@ class FurnitureRepricer:
             emma_products = emma_scraper.scrape_all_brands()
 
             self.logger.info(f"Emma Mason scraped: {len(emma_products)} products")
+            self._emma_products_count = len(emma_products)
 
             # Batch update
             if emma_products and not self.runtime_config.get('dry_run'):

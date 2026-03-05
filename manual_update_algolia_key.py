@@ -50,14 +50,15 @@ def validate_api_key(key):
     return True, "OK"
 
 def find_scraper_file():
-    """Find the file emmamason_algolia.py"""
+    """Find the file emmamason_algolia_v5_1.py"""
     
     # Try different possible paths
     possible_paths = [
-        Path("app/scrapers/emmamason_algolia.py"),
-        Path("scrapers/emmamason_algolia.py"),
-        Path("emmamason_algolia.py"),
+        Path("app/scrapers/emmamason_algolia_v5_1.py"),
+        Path("scrapers/emmamason_algolia_v5_1.py"),
+        Path("emmamason_algolia_v5_1.py"),
     ]
+
     
     for path in possible_paths:
         if path.exists():
@@ -193,11 +194,11 @@ def main():
     file_path = find_scraper_file()
     
     if not file_path:
-        print_error("Could not find emmamason_algolia.py")
+        print_error("Could not find emmamason_algolia_v5_1.py")
         print("\nSearched in:")
-        print("  - app/scrapers/emmamason_algolia.py")
-        print("  - scrapers/emmamason_algolia.py")
-        print("  - emmamason_algolia.py")
+        print("  - app/scrapers/emmamason_algolia_v5_1.py")
+        print("  - scrapers/emmamason_algolia_v5_1.py")
+        print("  - emmamason_algolia_v5_1.py")
         print("\nMake sure you run this from project root directory")
         sys.exit(1)
     

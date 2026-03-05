@@ -249,10 +249,8 @@ class RepricerScheduler:
                 # Every hour, log next runs
                 current_time = self._get_current_time()
                 if current_time.minute == 0:
-                    if self.config_loader:
-                        self._reload_config()
                     self._log_status()
-        
+
         except KeyboardInterrupt:
             logger.info("\n[OK] Scheduler stopped by user (Ctrl+C)")
         

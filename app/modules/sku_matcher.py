@@ -9,9 +9,11 @@ Comparing products by SKU
 
 from typing import List, Dict, Optional
 from difflib import SequenceMatcher
-import logging
 
-logger = logging.getLogger("sku_matcher")
+from .logger import get_logger
+
+logger = get_logger("sku_matcher")
+
 
 class SKUMatcher:
     """Class for matching SKUs between products"""

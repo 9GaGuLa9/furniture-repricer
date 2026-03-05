@@ -3,9 +3,10 @@ Pricing Engine for Furniture Repricer
 """
 
 from typing import Dict, List, Optional, Tuple
-import logging
+from .logger import get_logger
 
-logger = logging.getLogger("pricing")
+logger = get_logger("pricing")
+
 
 class PricingEngine:
     """calculating prices"""

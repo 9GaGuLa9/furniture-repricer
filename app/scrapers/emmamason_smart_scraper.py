@@ -85,9 +85,8 @@ class EmmaMasonSmartScraper:
 
                 self._send_notification(
                     "[OK] Emma Mason: Algolia API Success",
-                    f"Products: {len(products)}\n"
-                    f"Time: {duration:.1f}s\n"
-                    f"Method: Algolia API v5.1"
+                    f"Products: {len(products)}\nTime: {duration:.1f}s\nMethod: Algolia API v5.1",
+                    level="info",
                 )
 
                 return products
@@ -125,7 +124,8 @@ class EmmaMasonSmartScraper:
                             f"API key was automatically updated!\n\n"
                             f"Products: {len(products)}\n"
                             f"Time: {duration:.1f}s\n"
-                            f"Method: Algolia API"
+                            f"Method: Algolia API",
+                            level="warning",
                         )
 
                         return products
@@ -157,7 +157,8 @@ class EmmaMasonSmartScraper:
             "Algolia API is not working (possibly expired key).\n"
             "Auto-refresh failed or Playwright is not installed.\n\n"
             "HTML scraping v3 is used.\n\n"
-            "[!] Recommendation: Update the Algolia API key manually for better speed."
+            "[!] Recommendation: Update the Algolia API key manually for better speed.",
+            level="info",
         )
 
         try:
@@ -177,7 +178,8 @@ class EmmaMasonSmartScraper:
                 f"Time: {duration:.1f}s\n"
                 f"Method: HTML Scraping v3\n\n"
                 f"Note: Slower than API, but it works.\n"
-                f"For better speed, update your API key."
+                f"For better speed, update your API key.",
+                level="info",   
             )
 
             return products
@@ -190,7 +192,8 @@ class EmmaMasonSmartScraper:
                 f"Algolia API failed\n"
                 f"Auto-refresh failed\n"
                 f"HTML scraping failed: {e}\n\n"
-                f"[!] IMMEDIATE ATTENTION REQUIRED!"
+                f"[!] IMMEDIATE ATTENTION REQUIRED!",
+                level="critical",
             )
 
             # Log error
@@ -523,32 +526,43 @@ class EmmaMasonSmartScraper:
             logger.error(f"HTML scraping failed: {e}")
             raise
 
-    def _send_notification(self, title: str, message: str):
-        """
-        Send Telegram notification
+    def _send_notification(
+        self,
+        title: str,
+        message: str,
+        level: str = "info",
+    ) -> None:
+        """Send Telegram notification.
 
         Args:
-            title:
-            message: 
+            level: "info" | "warning" | "error" | "critical"
         """
         if not self.telegram_bot:
             logger.debug("Telegram bot not configured")
             return
 
         try:
-            full_message = f"*{title}*\n\n{message}"
-
-            # If there is a send_message method
-            if hasattr(self.telegram_bot, 'send_message'):
-                self.telegram_bot.send_message(full_message)
-            # If it's just a function
-            elif callable(self.telegram_bot):
-                self.telegram_bot(full_message)
-
-            logger.info(f"[OK] Telegram notification sent: {title}")
-
+            lvl = level.lower()
+            if lvl == "critical":
+                self.telegram_bot.send_critical(
+                    title=title, details=message
+                )
+            elif lvl in ("error", "errors"):
+                self.telegram_bot.send_error(
+                    title=title, details=message
+                )
+            elif lvl == "warning":
+                self.telegram_bot.send_warning(
+                    title=title, details=message
+                )
+            else:
+                self.telegram_bot.send_message(
+                    f"*{title}*\n\n{message}"
+                )
+            logger.info(f"[OK] Telegram sent: {title}")
         except Exception as e:
             logger.error(f"Failed to send notification: {e}")
+
 
 # Compatibility wrapper for existing code
 class EmmaMasonBrandsScraper:

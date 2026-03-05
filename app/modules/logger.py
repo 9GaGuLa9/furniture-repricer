@@ -125,19 +125,7 @@ def setup_logging(
     Returns:
         Root repricer logger instance.
     """
-    """
-    Configure the main logger
-    Support for log_level parameter
-    
-    Args:
-        log_dir: Directory for logs
-        log_format: Logging format
-        date_format: Date format
-        level: Logging level (‘DEBUG’, ‘INFO’, ‘WARNING’, ‘ERROR’)
-    
-    Returns:
-        Logger instance
-    """
+
     # Resolve effective levels for each tier.
     # If the fine-grained params are absent, fall back to the generic `level`.
     def _to_numeric(lvl: str) -> int:

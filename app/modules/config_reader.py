@@ -20,16 +20,16 @@ class GoogleSheetsConfigReader:
         """
         self.client = sheets_client
         self.sheet_id = main_sheet_id
-        self.logger = logger
+        self.logger = get_logger("config_reader")  
     
     def read_config(self) -> Dict[str, Any]:
         """
         Reading the configuration from the “Config” sheet
         
         Structure:
-        | Parameter | Value | Description |
-        |-----------|-------|-------------|
-        | run_enabled | TRUE | ... |
+        | Parameter   | Value | Description |
+        |-------------|-------|-------------|
+        | run_enabled | TRUE  | ............|
         
         Returns:
             Dictionary with configuration parameters
