@@ -7,7 +7,6 @@ Try Algolia API (fast, 7000+ products)
     Correct regex for replacing API key in file
 """
 
-import logging
 import time
 import re
 from typing import List, Dict, Optional
@@ -158,7 +157,7 @@ class EmmaMasonSmartScraper:
             "Auto-refresh failed or Playwright is not installed.\n\n"
             "HTML scraping v3 is used.\n\n"
             "[!] Recommendation: Update the Algolia API key manually for better speed.",
-            level="info",
+            level="warning",
         )
 
         try:

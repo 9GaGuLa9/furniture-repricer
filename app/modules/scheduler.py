@@ -8,12 +8,12 @@ import schedule
 from datetime import datetime, timedelta
 from typing import List, Optional, Callable
 import pytz
-import logging
+from .logger import get_logger
 from pathlib import Path
 import subprocess
 import sys
 
-logger = logging.getLogger("scheduler")
+logger = get_logger("scheduler")
 
 
 class RepricerScheduler:
